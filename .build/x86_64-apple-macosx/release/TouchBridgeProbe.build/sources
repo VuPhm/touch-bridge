@@ -1,3 +1,5 @@
+/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/AXPermissionManager.swift
+/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/AXSemanticEngine.swift
 /Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/CalibrationEngine.swift
 /Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/CalibrationView.swift
 /Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/CoordinateSpaces.swift
@@ -6,6 +8,8 @@
 /Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/HIDDeviceInspector.swift
 /Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/HIDInputMonitor.swift
 /Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/HIDNames.swift
+/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/SemanticTestView.swift
+/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/SingleTapRecognizer.swift
 /Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/TimestampValidator.swift
 /Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/TouchBridgeController.swift
 /Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/TouchFrameAggregator.swift

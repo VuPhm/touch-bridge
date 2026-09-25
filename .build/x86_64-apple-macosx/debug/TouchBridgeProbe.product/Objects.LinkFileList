@@ -1,3 +1,6 @@
+/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/AXCapabilityInspector.swift.o
+/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/AXPermissionManager.swift.o
+/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/AXSemanticEngine.swift.o
 /Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/CalibrationEngine.swift.o
 /Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/CalibrationView.swift.o
 /Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/CoordinateSpaces.swift.o
@@ -6,6 +9,11 @@
 /Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/HIDDeviceInspector.swift.o
 /Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/HIDInputMonitor.swift.o
 /Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/HIDNames.swift.o
+/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/SemanticFocusController.swift.o
+/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/SemanticScrollController.swift.o
+/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/SemanticTestView.swift.o
+/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/SingleTapRecognizer.swift.o
+/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/TimestampValidator.swift.o
 /Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/TouchBridgeController.swift.o
 /Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/TouchFrameAggregator.swift.o
 /Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/main.swift.o

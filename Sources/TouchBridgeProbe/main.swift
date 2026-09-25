@@ -9,14 +9,16 @@ func printHelp() {
     Usage: TouchBridgeProbe [options]
 
     Modes:
-      (Default)           Launch native calibration & verification UI on the bound external touchscreen.
+      (Default)           Launch native P2-A Semantic Tap Gate with AppKit controls (Test A) and mode switching.
+      --probe-only        Phase 2 AX hit-test probe only (inspect element at physical tap without AXPress).
+      --p2-cli            Run P2-A semantic tap gate in headless CLI mode.
       --calibrate         Force a fresh 4-point calibration session (replaces existing profile).
-      --verify            Run diagnostic verification window using saved calibration profile.
+      --verify            Run P1 diagnostic verification window using saved calibration profile.
       --inspect-only      Enumerate HID and Display interfaces, print full technical metadata, then exit.
       --displays          List all connected displays with CoreGraphics and AppKit geometry.
       --test-timestamps   Empirically validate real HID frame timestamps across gestures (P1.5 requirement 1).
       --cli-monitor       Run passive terminal touch monitor using the coherent TouchFrameAggregator.
-      --duration <sec>    In --cli-monitor or --test-timestamps mode, run for specified seconds then exit.
+      --duration <sec>    In CLI modes, run for specified seconds then exit.
 
     Display Binding Options:
       --display-id <id>   Manually bind to a specific CGDirectDisplayID instead of auto-discovering external display.
@@ -224,6 +226,106 @@ func runTimestampValidation(targetDevice: DeviceMetadata, duration: Double?) {
     CFRunLoopRun()
 }
 
+func runCLISemanticGate(
+    display: DisplayMetadata,
+    targetDevice: DeviceMetadata,
+    profile: CalibrationProfile,
+    probeOnly: Bool,
+    duration: Double?
+) {
+    print("================================================================================")
+    print("       TouchBridge P2-A — CLI Pointer-Independent Semantic Gate                 ")
+    print("================================================================================")
+    print("Target Device:  \(targetDevice.name)")
+    print("Target Display: \(display.name) (CG Bounds: [\(display.cgOriginX), \(display.cgOriginY), \(display.cgWidth), \(display.cgHeight)])")
+    print("Mode:           \(probeOnly ? "Phase 2 AX Hit-Test Probe Only (No Actions)" : "Phase 4/5 Semantic Press (Pointer-Independent)")")
+    print("================================================================================\n")
+    
+    let permStatus = AXPermissionManager.shared.checkPermission(requestPromptIfNeeded: true)
+    if permStatus != .granted {
+        print("[CRITICAL] Accessibility permission is UNAVAILABLE.")
+        print("           Grant permission in System Settings -> Privacy & Security -> Accessibility.")
+        exit(1)
+    }
+    print("[✓] Accessibility permission verified.")
+    print("Ready for physical touchscreen taps. Press Ctrl+C to stop.\n")
+    fflush(stdout)
+    
+    let xElem = targetDevice.absoluteXElement
+    let yElem = targetDevice.absoluteYElement
+    let logMinX = xElem?.logicalMin ?? 0
+    let logMaxX = xElem?.logicalMax ?? 4096
+    let logMinY = yElem?.logicalMin ?? 0
+    let logMaxY = yElem?.logicalMax ?? 4096
+    
+    let tapRecognizer = SingleTapRecognizer(
+        display: display,
+        profile: profile,
+        onTap: { tapEvent in
+            if probeOnly {
+                print("\n[PHYSICAL TAP OBSERVED] \(tapEvent)")
+                let (_, snapshot, err) = AXSemanticEngine.shared.probeElementAt(globalCG: tapEvent.calibratedGlobalCG)
+                if err == .success, let s = snapshot {
+                    print("  Hit Element -> App: \(s.applicationName) (PID: \(s.pid)) | Role: \(s.role) | Subrole: \(s.subrole ?? "nil") | Title: \"\(s.title ?? "")\" | Value: \"\(s.value ?? "")\"")
+                    print("  Supported Actions: \(s.supportedActions)")
+                } else {
+                    print("  Hit test returned error: \(AXSemanticEngine.shared.axErrorDescription(err))")
+                }
+            } else {
+                _ = AXSemanticEngine.shared.performSemanticTap(tap: tapEvent, testCase: "CLI Semantic Tap")
+                try? AXSemanticEngine.shared.saveEvidenceToFile(
+                    at: URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("semantic_verification_records.json")
+                )
+            }
+        },
+        onCancelled: { reason, movement, duration in
+            print("[TAP REJECTED] \(reason.rawValue): Movement: \(String(format: "%.1f", movement)) pt, Duration: \(String(format: "%.3f", duration))s")
+        }
+    )
+    
+    let aggregator = TouchFrameAggregator(
+        logMinX: Int(logMinX), logMaxX: Int(logMaxX),
+        logMinY: Int(logMinY), logMaxY: Int(logMaxY)
+    ) { sample in
+        tapRecognizer.processSample(sample)
+    }
+    
+    let context = Unmanaged.passUnretained(aggregator).toOpaque()
+    let callback: IOHIDValueCallback = { context, result, sender, value in
+        guard let context = context else { return }
+        let agg = Unmanaged<TouchFrameAggregator>.fromOpaque(context).takeUnretainedValue()
+        let elem = IOHIDValueGetElement(value)
+        let page = IOHIDElementGetUsagePage(elem)
+        let usage = IOHIDElementGetUsage(elem)
+        let val = IOHIDValueGetIntegerValue(value)
+        let machTime = IOHIDValueGetTimeStamp(value)
+        agg.handleElement(usagePage: page, usage: usage, value: val, machTime: machTime)
+    }
+    
+    let openRes = IOHIDDeviceOpen(targetDevice.device, IOOptionBits(kIOHIDOptionsTypeNone))
+    guard openRes == kIOReturnSuccess else {
+        print("[ERROR] Failed to open HID device: 0x\(String(format: "%08X", openRes))")
+        exit(1)
+    }
+    
+    IOHIDDeviceRegisterInputValueCallback(targetDevice.device, callback, context)
+    IOHIDDeviceScheduleWithRunLoop(targetDevice.device, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode.rawValue)
+    
+    if let dur = duration {
+        DispatchQueue.global().asyncAfter(deadline: .now() + dur) {
+            print("\n[INFO] Duration of \(dur)s elapsed.")
+            exit(0)
+        }
+    }
+    
+    signal(SIGINT) { _ in
+        print("\nSession terminated by Ctrl+C.")
+        exit(0)
+    }
+    
+    CFRunLoopRun()
+}
+
 func main() {
     let args = CommandLine.arguments
     if args.contains("--help") || args.contains("-h") {
@@ -236,6 +338,19 @@ func main() {
     let testTimestamps = args.contains("--test-timestamps")
     let cliMonitor = args.contains("--cli-monitor")
     let forceCalibrate = args.contains("--calibrate")
+    let runVerify = args.contains("--verify")
+    let probeOnly = args.contains("--probe-only")
+    let p2Cli = args.contains("--p2-cli")
+    let testB = args.contains("--test-b") || args.contains("--test-calc")
+    let testTextEdit = args.contains("--test-textedit")
+    let testFinder = args.contains("--test-finder")
+    let testC = args.contains("--test-c") || args.contains("--test-browser")
+    
+    var subTest: SemanticSubTest = .testA_appKit
+    if testB { subTest = .testB_calculator }
+    else if testTextEdit { subTest = .testC_textEdit }
+    else if testFinder { subTest = .testD_finder }
+    else if testC { subTest = .testE_browser }
     
     var duration: Double? = nil
     if let dIdx = args.firstIndex(of: "--duration"), dIdx + 1 < args.count {
@@ -276,7 +391,7 @@ func main() {
     if inspectOnly {
         print("================================================================================")
         print("         TouchBridge P1 — Diagnostic Hardware & Display Inspection             ")
-        print("================================================================================\n")
+        print("================================================================================")
         
         print("[1] Connected Displays (\(allDisplays.count)):")
         for d in allDisplays {
@@ -350,14 +465,44 @@ func main() {
         return
     }
     
+    // Load calibration profile for CLI mode
+    var activeProfile: CalibrationProfile? = nil
+    if let p = profilePath {
+        activeProfile = try? CalibrationProfile.load(from: URL(fileURLWithPath: p))
+    } else {
+        let defURL = CalibrationProfile.defaultProfileURL(for: targetDisplay.id)
+        activeProfile = (try? CalibrationProfile.load(from: defURL)) ?? (try? CalibrationProfile.load(from: URL(fileURLWithPath: "TouchBridgeCalibration.json")))
+    }
+    
+    if p2Cli {
+        guard let prof = activeProfile else {
+            print("[ERROR] No valid calibration profile found. Run calibration first.")
+            exit(1)
+        }
+        runCLISemanticGate(display: targetDisplay, targetDevice: dev, profile: prof, probeOnly: probeOnly, duration: duration)
+        return
+    }
+    
     // Launch Native Cocoa GUI
     let app = NSApplication.shared
     app.setActivationPolicy(.regular)
     
+    let sessionMode: SessionMode
+    if runVerify {
+        sessionMode = .verification
+    } else if forceCalibrate {
+        sessionMode = .calibration
+    } else {
+        sessionMode = .semanticGate
+    }
+    
     let controller = TouchBridgeController(
         targetDisplayID: targetDisplay.id,
         forceCalibrate: forceCalibrate,
-        profilePath: profilePath
+        profilePath: profilePath,
+        sessionMode: sessionMode,
+        probeOnly: probeOnly,
+        initialSubTest: subTest
     )
     app.delegate = controller
     
@@ -365,3 +510,4 @@ func main() {
 }
 
 main()
+

@@ -24,6 +24,14 @@
       "inputs" : [
         {
           "kind" : "file",
+          "name" : "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/AXPermissionManager.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/AXSemanticEngine.swift"
+        },
+        {
+          "kind" : "file",
           "name" : "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/CalibrationEngine.swift"
         },
         {
@@ -56,6 +64,14 @@
         },
         {
           "kind" : "file",
+          "name" : "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/SemanticTestView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/SingleTapRecognizer.swift"
+        },
+        {
+          "kind" : "file",
           "name" : "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/TimestampValidator.swift"
         },
         {
@@ -83,6 +99,8 @@
       "moduleName" : "TouchBridgeProbe",
       "moduleOutputPath" : "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/Modules/TouchBridgeProbe.swiftmodule",
       "objects" : [
+        "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/AXPermissionManager.swift.o",
+        "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/AXSemanticEngine.swift.o",
         "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/CalibrationEngine.swift.o",
         "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/CalibrationView.swift.o",
         "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/CoordinateSpaces.swift.o",
@@ -91,6 +109,8 @@
         "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/HIDDeviceInspector.swift.o",
         "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/HIDInputMonitor.swift.o",
         "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/HIDNames.swift.o",
+        "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/SemanticTestView.swift.o",
+        "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/SingleTapRecognizer.swift.o",
         "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/TimestampValidator.swift.o",
         "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/TouchBridgeController.swift.o",
         "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/TouchFrameAggregator.swift.o",
@@ -139,6 +159,14 @@
       "outputs" : [
         {
           "kind" : "file",
+          "name" : "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/AXPermissionManager.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/AXSemanticEngine.swift.o"
+        },
+        {
+          "kind" : "file",
           "name" : "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/CalibrationEngine.swift.o"
         },
         {
@@ -171,6 +199,14 @@
         },
         {
           "kind" : "file",
+          "name" : "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/SemanticTestView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/SingleTapRecognizer.swift.o"
+        },
+        {
+          "kind" : "file",
           "name" : "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/TimestampValidator.swift.o"
         },
         {
@@ -192,6 +228,8 @@
       ],
       "prepareForIndexing" : false,
       "sources" : [
+        "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/AXPermissionManager.swift",
+        "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/AXSemanticEngine.swift",
         "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/CalibrationEngine.swift",
         "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/CalibrationView.swift",
         "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/CoordinateSpaces.swift",
@@ -200,6 +238,8 @@
         "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/HIDDeviceInspector.swift",
         "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/HIDInputMonitor.swift",
         "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/HIDNames.swift",
+        "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/SemanticTestView.swift",
+        "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/SingleTapRecognizer.swift",
         "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/TimestampValidator.swift",
         "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/TouchBridgeController.swift",
         "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/TouchFrameAggregator.swift",
@@ -223,6 +263,8 @@
       "-num-threads",
       "12",
       "-c",
+      "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/AXPermissionManager.swift",
+      "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/AXSemanticEngine.swift",
       "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/CalibrationEngine.swift",
       "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/CalibrationView.swift",
       "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/CoordinateSpaces.swift",
@@ -231,6 +273,8 @@
       "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/HIDDeviceInspector.swift",
       "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/HIDInputMonitor.swift",
       "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/HIDNames.swift",
+      "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/SemanticTestView.swift",
+      "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/SingleTapRecognizer.swift",
       "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/TimestampValidator.swift",
       "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/TouchBridgeController.swift",
       "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/TouchFrameAggregator.swift",
@@ -313,6 +357,14 @@
         },
         {
           "kind" : "file",
+          "name" : "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/AXPermissionManager.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/AXSemanticEngine.swift"
+        },
+        {
+          "kind" : "file",
           "name" : "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/CalibrationEngine.swift"
         },
         {
@@ -345,6 +397,14 @@
         },
         {
           "kind" : "file",
+          "name" : "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/SemanticTestView.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/SingleTapRecognizer.swift"
+        },
+        {
+          "kind" : "file",
           "name" : "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/TimestampValidator.swift"
         },
         {
@@ -368,6 +428,14 @@
         {
           "kind" : "virtual",
           "name" : "<link-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/AXPermissionManager.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/AXSemanticEngine.swift.o"
         },
         {
           "kind" : "file",
@@ -400,6 +468,14 @@
         {
           "kind" : "file",
           "name" : "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/HIDNames.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/SemanticTestView.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/SingleTapRecognizer.swift.o"
         },
         {
           "kind" : "file",

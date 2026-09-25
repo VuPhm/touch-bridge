@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>TouchBridge AX Comprehensive P2-B Test Suite</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #0f172a;
+            color: #f1f5f9;
+            padding: 30px;
+            user-select: none;
+            margin: 0;
+            line-height: 1.5;
+        }
+        h1 {
+            color: #38bdf8;
+            font-size: 22px;
+            margin-top: 0;
+            margin-bottom: 20px;
+        }
+        .section {
+            margin-bottom: 24px;
+            padding: 18px;
+            background: #1e293b;
+            border-radius: 8px;
+            border: 1px solid #334155;
+            max-width: 600px;
+        }
+        .section-title {
+            font-weight: bold;
+            font-size: 14px;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
+        }
+        button {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 15px;
+            font-weight: 600;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.15s ease;
+        }
+        button:hover { background: #1d4ed8; }
+        button:active { background: #1e40af; }
+        input[type="checkbox"], input[type="radio"] {
+            width: 20px;
+            height: 20px;
+            vertical-align: middle;
+            cursor: pointer;
+        }
+        input[type="text"] {
+            background: #0f172a;
+            border: 1.5px solid #475569;
+            border-radius: 6px;
+            color: #f8fafc;
+            padding: 10px 14px;
+            font-size: 15px;
+            width: 80%;
+            box-sizing: border-box;
+            outline: none;
+        }
+        input[type="text"]:focus {
+            border-color: #38bdf8;
+            box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.25);
+        }
+        select {
+            background: #0f172a;
+            border: 1.5px solid #475569;
+            border-radius: 6px;
+            color: #f8fafc;
+            padding: 8px 12px;
+            font-size: 14px;
+            width: 60%;
+            cursor: pointer;
+        }
+        .status-badge {
+            display: inline-block;
+            margin-left: 12px;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 13px;
+            background: #334155;
+            color: #94a3b8;
+        }
+        .status-badge.active {
+            background: #065f46;
+            color: #34d399;
+        }
+        /* Nested Scroll Area */
+        .nested-scroll-container {
+            height: 220px;
+            overflow-y: scroll;
+            border: 2px solid #3b82f6;
+            border-radius: 6px;
+            background: #090d16;
+            padding: 10px 14px;
+            box-sizing: border-box;
+        }
+        .scroll-item {
+            padding: 10px 12px;
+            margin-bottom: 6px;
+            background: #1e293b;
+            border-radius: 4px;
+            border: 1px solid #334155;
+            font-size: 14px;
+        }
+        .scroll-item:hover {
+            background: #2d3748;
+        }
+        .non-actionable-box {
+            padding: 16px;
+            background: #1e293b;
+            border: 2px dashed #475569;
+            border-radius: 6px;
+            color: #94a3b8;
+            font-size: 14px;
+        }
+        /* Long document page filler */
+        .page-filler {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #334155;
+            color: #64748b;
+        }
+    </style>
+</head>
+<body>
+    <h1>TouchBridge P2-B — Browser Semantic Capability Suite</h1>
+
+    <!-- 1. Buttons & Taps -->
+    <div class="section">
+        <div class="section-title">1. Standard Semantic Taps</div>
+        <button id="test-button" onclick="handleButtonClick()">Semantic Test Button</button>
+        <span id="button-status" class="status-badge">Clicks: 0</span>
+        <div style="margin-top: 14px;">
+            <input type="checkbox" id="test-checkbox" onchange="handleCheckboxChange()">
+            <label for="test-checkbox" style="margin-left: 6px; cursor: pointer;">Semantic Test Checkbox</label>
+            <span id="checkbox-status" class="status-badge">Unchecked</span>
+        </div>
+        <div style="margin-top: 14px;">
+            <input type="radio" id="radio1" name="sample-radio" value="Radio A" onchange="handleRadioChange(this)">
+            <label for="radio1" style="margin-left: 6px; margin-right: 16px; cursor: pointer;">Radio Alpha</label>
+            <input type="radio" id="radio2" name="sample-radio" value="Radio B" onchange="handleRadioChange(this)">
+            <label for="radio2" style="margin-left: 6px; cursor: pointer;">Radio Beta</label>
+            <span id="radio-status" class="status-badge">None Selected</span>
+        </div>
+    </div>
+
+    <!-- 2. Text Field Focus -->
+    <div class="section">
+        <div class="section-title">2. Text Field Focus Viability</div>
+        <input type="text" id="text-input" placeholder="Tap to focus, then type on physical keyboard..." onfocus="handleTextFocus()" onblur="handleTextBlur()" oninput="handleTextInput(this)">
+        <div style="margin-top: 10px;">
+            <span id="focus-status" class="status-badge">Field Focus: Blurred</span>
+            <span id="input-mirror" class="status-badge" style="margin-left: 8px;">Text: (empty)</span>
+        </div>
+    </div>
+
+    <!-- 3. Selection / Menu / Dropdown -->
+    <div class="section">
+        <div class="section-title">3. Selection &amp; Dropdown</div>
+        <select id="sample-select" onchange="handleSelectChange(this)">
+            <option value="Standard Option 1">Item 1: Overview Mode</option>
+            <option value="Standard Option 2">Item 2: Diagnostic Stream</option>
+            <option value="Standard Option 3">Item 3: Semantic Gate</option>
+        </select>
+        <span id="select-status" class="status-badge">Selected: Item 1</span>
+    </div>
+
+    <!-- 4. Nested Scroll Area -->
+    <div class="section">
+        <div class="section-title">4. Nested Scrollable Area (&lt;div style="overflow-y: scroll"&gt;)</div>
+        <div id="nested-scroll" class="nested-scroll-container">
+            <!-- 50 scroll items -->
+            <div class="scroll-item" id="item-1">Item #01 — Top of Nested Container</div>
+            <div class="scroll-item" id="item-2">Item #02 — TouchBridge Semantic Test Item</div>
+            <div class="scroll-item" id="item-3">Item #03 — Checking AXScrollArea / AXScrollBar</div>
+            <div class="scroll-item" id="item-4">Item #04 — Touch Position Proportional Mapping</div>
+            <div class="scroll-item" id="item-5">Item #05 — Natural Touch Direction Test</div>
+            <div class="scroll-item" id="item-6">Item #06 — Row Item Six</div>
+            <div class="scroll-item" id="item-7">Item #07 — Row Item Seven</div>
+            <div class="scroll-item" id="item-8">Item #08 — Row Item Eight</div>
+            <div class="scroll-item" id="item-9">Item #09 — Row Item Nine</div>
+            <div class="scroll-item" id="item-10">Item #10 — Midpoint Item Ten</div>
+            <div class="scroll-item" id="item-11">Item #11 — Row Item Eleven</div>
+            <div class="scroll-item" id="item-12">Item #12 — Row Item Twelve</div>
+            <div class="scroll-item" id="item-13">Item #13 — Row Item Thirteen</div>
+            <div class="scroll-item" id="item-14">Item #14 — Row Item Fourteen</div>
+            <div class="scroll-item" id="item-15">Item #15 — Row Item Fifteen</div>
+            <div class="scroll-item" id="item-16">Item #16 — Row Item Sixteen</div>
+            <div class="scroll-item" id="item-17">Item #17 — Row Item Seventeen</div>
+            <div class="scroll-item" id="item-18">Item #18 — Row Item Eighteen</div>
+            <div class="scroll-item" id="item-19">Item #19 — Row Item Nineteen</div>
+            <div class="scroll-item" id="item-20">Item #20 — Deep Nested Item Twenty</div>
+            <div class="scroll-item" id="item-21">Item #21 — Row Item Twenty-One</div>
+            <div class="scroll-item" id="item-22">Item #22 — Row Item Twenty-Two</div>
+            <div class="scroll-item" id="item-23">Item #23 — Row Item Twenty-Three</div>
+            <div class="scroll-item" id="item-24">Item #24 — Row Item Twenty-Four</div>
+            <div class="scroll-item" id="item-25">Item #25 — Bottom of Nested Container</div>
+        </div>
+        <div style="margin-top: 8px;">
+            <span id="scroll-status" class="status-badge">Scroll Top: 0 px</span>
+        </div>
+    </div>
+
+    <!-- 5. Non-Actionable Control -->
+    <div class="section">
+        <div class="section-title">5. Non-Actionable Container</div>
+        <div id="test-div" class="non-actionable-box">
+            <strong>Non-Actionable Container (&lt;div&gt;)</strong><br>
+            Tapping this element must produce an explicit AX_PRESS_UNSUPPORTED without fallback.
+        </div>
+    </div>
+
+    <!-- 6. Long Document Page Filler to Ensure Window Itself is Scrollable -->
+    <div class="page-filler">
+        <h3>Main Document Scroll Depth Extension</h3>
+        <p>Paragraph 1: Testing full-document Accessibility scrollability.</p>
+        <p>Paragraph 2: Evaluating whether WebKit surfaces AXVerticalScrollBar on document body.</p>
+        <p>Paragraph 3: Pointer-independent verification on external display.</p>
+        <p>Paragraph 4: Additional line to extend page height well beyond viewport height.</p>
+        <p>Paragraph 5: Final paragraph at end of page.</p>
+        <div style="height: 400px; background: rgba(255,255,255,0.02); border: 1px dashed #334155; border-radius: 6px; padding: 20px;">
+            Document Scroll Anchor (Bottom of Page)
+        </div>
+    </div>
+
+    <script>
+        let clickCount = 0;
+        function handleButtonClick() {
+            clickCount++;
+            const badge = document.getElementById('button-status');
+            badge.textContent = `Clicks: ${clickCount}`;
+            badge.classList.add('active');
+        }
+
+        function handleCheckboxChange() {
+            const chk = document.getElementById('test-checkbox');
+            const badge = document.getElementById('checkbox-status');
+            badge.textContent = chk.checked ? 'CHECKED' : 'Unchecked';
+            if (chk.checked) badge.classList.add('active');
+            else badge.classList.remove('active');
+        }
+
+        function handleRadioChange(elem) {
+            const badge = document.getElementById('radio-status');
+            badge.textContent = `Selected: ${elem.value}`;
+            badge.classList.add('active');
+        }
+
+        function handleTextFocus() {
+            const badge = document.getElementById('focus-status');
+            badge.textContent = 'Field Focus: ACTIVE';
+            badge.classList.add('active');
+        }
+
+        function handleTextBlur() {
+            const badge = document.getElementById('focus-status');
+            badge.textContent = 'Field Focus: Blurred';
+            badge.classList.remove('active');
+        }
+
+        function handleTextInput(input) {
+            const mirror = document.getElementById('input-mirror');
+            mirror.textContent = `Text: "${input.value}"`;
+        }
+
+        function handleSelectChange(select) {
+            const badge = document.getElementById('select-status');
+            badge.textContent = `Selected: ${select.value}`;
+            badge.classList.add('active');
+        }
+
+        const nestedContainer = document.getElementById('nested-scroll');
+        nestedContainer.addEventListener('scroll', () => {
+            const badge = document.getElementById('scroll-status');
+            badge.textContent = `Scroll Top: ${nestedContainer.scrollTop} px`;
+            badge.classList.add('active');
+        });
+    </script>
+</body>
+</html>

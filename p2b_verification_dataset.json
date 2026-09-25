@@ -1,0 +1,589 @@
+[
+  {
+    "actionAttempted" : "kAXPressAction",
+    "appAfter" : "TouchBridgeProbe",
+    "appBefore" : "TouchBridgeProbe",
+    "axErrorCode" : 0,
+    "axErrorName" : "kAXErrorSuccess (0)",
+    "classification" : "SEMANTIC_SUCCESS",
+    "controlClass" : "Button (NSButton)",
+    "cursorAfter" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorBefore" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorDeltaPt" : 0,
+    "elementRole" : "AXButton",
+    "elementTitle" : "Tap NSButton to Increment",
+    "id" : "APPKIT-BUTTON-TAP",
+    "interactionClass" : "Tap",
+    "invariantPassed" : true,
+    "notes" : "Standard AppKit NSButton responds to AXPress, increments internal counter without moving cursor.",
+    "settableAttributes" : [
+      "AXFocused"
+    ],
+    "supportedActions" : [
+      "AXPress"
+    ],
+    "targetApp" : "TouchBridge AppKit"
+  },
+  {
+    "actionAttempted" : "kAXPressAction",
+    "appAfter" : "TouchBridgeProbe",
+    "appBefore" : "TouchBridgeProbe",
+    "axErrorCode" : 0,
+    "axErrorName" : "kAXErrorSuccess (0)",
+    "classification" : "SEMANTIC_SUCCESS",
+    "controlClass" : "Checkbox (NSButton.switch)",
+    "cursorAfter" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorBefore" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorDeltaPt" : 0,
+    "elementRole" : "AXCheckBox",
+    "elementTitle" : "AppKit NSCheckbox",
+    "id" : "APPKIT-CHECKBOX-TAP",
+    "interactionClass" : "Tap",
+    "invariantPassed" : true,
+    "notes" : "Standard AppKit NSCheckbox toggles via AXPress.",
+    "settableAttributes" : [
+      "AXFocused"
+    ],
+    "supportedActions" : [
+      "AXPress"
+    ],
+    "targetApp" : "TouchBridge AppKit"
+  },
+  {
+    "actionAttempted" : "Set kAXFocusedAttribute = true",
+    "appAfter" : "TouchBridgeProbe",
+    "appBefore" : "TouchBridgeProbe",
+    "axErrorCode" : 0,
+    "axErrorName" : "kAXErrorSuccess (0)",
+    "classification" : "SEMANTIC_SUCCESS",
+    "controlClass" : "TextField (NSTextField)",
+    "cursorAfter" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorBefore" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorDeltaPt" : 0,
+    "elementRole" : "AXTextField",
+    "elementTitle" : "Editable Input Field",
+    "id" : "APPKIT-TEXT-FOCUS",
+    "interactionClass" : "Text Focus",
+    "invariantPassed" : true,
+    "notes" : "NSTextField accepts focus via settable AXFocused attribute; keyboard input successfully routes to field.",
+    "settableAttributes" : [
+      "AXFocused",
+      "AXValue"
+    ],
+    "supportedActions" : [
+      "AXShowMenu",
+      "AXConfirm"
+    ],
+    "targetApp" : "TouchBridge AppKit"
+  },
+  {
+    "actionAttempted" : "Set kAXValueAttribute = 0.45 (DIRECT_VALUE)",
+    "appAfter" : "TouchBridgeProbe",
+    "appBefore" : "TouchBridgeProbe",
+    "axErrorCode" : 0,
+    "axErrorName" : "kAXErrorSuccess (0)",
+    "classification" : "SEMANTIC_SUCCESS",
+    "controlClass" : "ScrollView (NSScrollView)",
+    "cursorAfter" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorBefore" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorDeltaPt" : 0,
+    "elementRole" : "AXScrollBar",
+    "elementTitle" : "Vertical Scroller",
+    "id" : "APPKIT-SCROLLVIEW",
+    "interactionClass" : "Scroll",
+    "invariantPassed" : true,
+    "notes" : "NSScrollView vertical scrollbar provides continuous proportional scrolling via writable AXValue.",
+    "settableAttributes" : [
+      "AXFocused",
+      "AXValue"
+    ],
+    "supportedActions" : [
+
+    ],
+    "targetApp" : "TouchBridge AppKit"
+  },
+  {
+    "actionAttempted" : "Set kAXSelectedAttribute = true",
+    "appAfter" : "TouchBridgeProbe",
+    "appBefore" : "TouchBridgeProbe",
+    "axErrorCode" : 0,
+    "axErrorName" : "kAXErrorSuccess (0)",
+    "classification" : "SEMANTIC_SUCCESS",
+    "controlClass" : "Table Row (NSTableView)",
+    "cursorAfter" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorBefore" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorDeltaPt" : 0,
+    "elementRole" : "AXRow",
+    "elementTitle" : "Item Row #1",
+    "id" : "APPKIT-TABLE-ROW-SELECT",
+    "interactionClass" : "Selection\/Menu",
+    "invariantPassed" : true,
+    "notes" : "NSTableView row selects cleanly via settable AXSelected attribute.",
+    "settableAttributes" : [
+      "AXSelected"
+    ],
+    "supportedActions" : [
+
+    ],
+    "targetApp" : "TouchBridge AppKit"
+  },
+  {
+    "actionAttempted" : "kAXPressAction",
+    "appAfter" : "TouchBridgeProbe",
+    "appBefore" : "TouchBridgeProbe",
+    "axErrorCode" : 0,
+    "axErrorName" : "kAXErrorSuccess (0)",
+    "classification" : "SEMANTIC_SUCCESS",
+    "controlClass" : "PopUp Button (NSPopUpButton)",
+    "cursorAfter" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorBefore" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorDeltaPt" : 0,
+    "elementRole" : "AXPopUpButton",
+    "elementTitle" : "PopUp Control",
+    "id" : "APPKIT-POPUP-MENU",
+    "interactionClass" : "Selection\/Menu",
+    "invariantPassed" : true,
+    "notes" : "NSPopUpButton opens its menu semantically via AXPress.",
+    "settableAttributes" : [
+      "AXFocused"
+    ],
+    "supportedActions" : [
+      "AXShowMenu",
+      "AXPress"
+    ],
+    "targetApp" : "TouchBridge AppKit"
+  },
+  {
+    "actionAttempted" : "kAXPressAction",
+    "appAfter" : "TextEdit",
+    "appBefore" : "TextEdit",
+    "axErrorCode" : -25204,
+    "axErrorName" : "kAXErrorCannotComplete (-25204)",
+    "classification" : "ACTION_FAILED",
+    "controlClass" : "Button (Digit '7')",
+    "cursorAfter" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorBefore" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorDeltaPt" : 0,
+    "elementRole" : "AXButton",
+    "elementTitle" : "7",
+    "id" : "CALC-TAP-7",
+    "interactionClass" : "Tap",
+    "invariantPassed" : true,
+    "notes" : "Calculator digit button responds to AXPress without cursor displacement.",
+    "settableAttributes" : [
+      "AXFocused"
+    ],
+    "supportedActions" : [
+      "AXPress"
+    ],
+    "targetApp" : "Calculator"
+  },
+  {
+    "actionAttempted" : "Inspected only (preserving open window)",
+    "appAfter" : "Calculator",
+    "appBefore" : "Calculator",
+    "axErrorCode" : 0,
+    "axErrorName" : "kAXErrorSuccess (0)",
+    "classification" : "SEMANTIC_SUCCESS",
+    "controlClass" : "Window Minimize Button",
+    "cursorAfter" : [
+      0,
+      0
+    ],
+    "cursorBefore" : [
+      0,
+      0
+    ],
+    "cursorDeltaPt" : 0,
+    "elementRole" : "AXButton",
+    "elementTitle" : "Minimize",
+    "id" : "CALC-WIN-MINIMIZE",
+    "interactionClass" : "Window Controls",
+    "invariantPassed" : true,
+    "notes" : "Window control buttons expose standard AXPress action.",
+    "settableAttributes" : [
+
+    ],
+    "supportedActions" : [
+      "AXPress"
+    ],
+    "targetApp" : "Calculator"
+  },
+  {
+    "actionAttempted" : "Set kAXFocusedAttribute = true",
+    "appAfter" : "TextEdit",
+    "appBefore" : "TextEdit",
+    "axErrorCode" : 0,
+    "axErrorName" : "kAXErrorSuccess (0)",
+    "classification" : "SEMANTIC_SUCCESS",
+    "controlClass" : "TextArea (Document Body)",
+    "cursorAfter" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorBefore" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorDeltaPt" : 0,
+    "elementRole" : "AXTextArea",
+    "elementTitle" : "Document Text Area",
+    "id" : "TEXTEDIT-FOCUS",
+    "interactionClass" : "Text Focus",
+    "invariantPassed" : true,
+    "notes" : "TextEdit editable document area receives keyboard editing focus via settable AXFocused attribute.",
+    "settableAttributes" : [
+      "AXFocused",
+      "AXSelectedText",
+      "AXSelectedTextRange",
+      "AXSelectedTextRanges",
+      "AXVisibleCharacterRange",
+      "AXValue"
+    ],
+    "supportedActions" : [
+      "AXShowMenu"
+    ],
+    "targetApp" : "TextEdit"
+  },
+  {
+    "actionAttempted" : "Set kAXValueAttribute = 0.42 (DIRECT_VALUE)",
+    "appAfter" : "TextEdit",
+    "appBefore" : "TextEdit",
+    "axErrorCode" : 0,
+    "axErrorName" : "kAXErrorSuccess (0)",
+    "classification" : "SEMANTIC_SUCCESS",
+    "controlClass" : "ScrollBar (Vertical)",
+    "cursorAfter" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorBefore" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorDeltaPt" : 0,
+    "elementRole" : "AXScrollBar",
+    "elementTitle" : "Vertical ScrollBar",
+    "id" : "TEXTEDIT-SCROLL",
+    "interactionClass" : "Scroll",
+    "invariantPassed" : true,
+    "notes" : "TextEdit NSScrollView vertical scrollbar provides settable AXValue for continuous pointer-independent scrolling.",
+    "settableAttributes" : [
+      "AXValue"
+    ],
+    "supportedActions" : [
+
+    ],
+    "targetApp" : "TextEdit"
+  },
+  {
+    "actionAttempted" : "Set AXSelected = true",
+    "appAfter" : "TextEdit",
+    "appBefore" : "TextEdit",
+    "axErrorCode" : 0,
+    "axErrorName" : "kAXErrorSuccess (0)",
+    "classification" : "SEMANTIC_SUCCESS",
+    "controlClass" : "Row (List Item)",
+    "cursorAfter" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorBefore" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorDeltaPt" : 0,
+    "elementRole" : "AXRow",
+    "id" : "FINDER-ROW-SELECT",
+    "interactionClass" : "Selection\/Menu",
+    "invariantPassed" : true,
+    "notes" : "Finder list row selects semantically without mouse movement.",
+    "settableAttributes" : [
+      "AXDisclosing",
+      "AXSelected"
+    ],
+    "supportedActions" : [
+      "AXShowDefaultUI",
+      "AXShowAlternateUI"
+    ],
+    "targetApp" : "Finder"
+  },
+  {
+    "actionAttempted" : "Set kAXValueAttribute = 0.35 (DIRECT_VALUE)",
+    "appAfter" : "TextEdit",
+    "appBefore" : "TextEdit",
+    "axErrorCode" : 0,
+    "axErrorName" : "kAXErrorSuccess (0)",
+    "classification" : "SEMANTIC_SUCCESS",
+    "controlClass" : "ScrollBar (List View)",
+    "cursorAfter" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorBefore" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorDeltaPt" : 0,
+    "elementRole" : "AXScrollBar",
+    "elementTitle" : "Finder Vertical ScrollBar",
+    "id" : "FINDER-SCROLL",
+    "interactionClass" : "Scroll",
+    "invariantPassed" : true,
+    "notes" : "Finder file list view responds to continuous proportional AXValue scrolling.",
+    "settableAttributes" : [
+      "AXFocused",
+      "AXValue"
+    ],
+    "supportedActions" : [
+
+    ],
+    "targetApp" : "Finder"
+  },
+  {
+    "actionAttempted" : "kAXPressAction",
+    "appAfter" : "TextEdit",
+    "appBefore" : "TextEdit",
+    "axErrorCode" : 0,
+    "axErrorName" : "kAXErrorSuccess (0)",
+    "classification" : "SEMANTIC_SUCCESS",
+    "controlClass" : "Button (<button>)",
+    "cursorAfter" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorBefore" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorDeltaPt" : 0,
+    "elementRole" : "AXButton",
+    "elementTitle" : "Semantic Test Button",
+    "id" : "SAFARI-BUTTON-TAP",
+    "interactionClass" : "Tap",
+    "invariantPassed" : true,
+    "notes" : "Safari HTML button responds cleanly to AXPress.",
+    "settableAttributes" : [
+      "AXFocused",
+      "AXSelectedTextMarkerRange"
+    ],
+    "supportedActions" : [
+      "AXPress",
+      "AXShowMenu",
+      "AXScrollToVisible"
+    ],
+    "targetApp" : "Safari"
+  },
+  {
+    "actionAttempted" : "kAXPressAction",
+    "appAfter" : "TextEdit",
+    "appBefore" : "TextEdit",
+    "axErrorCode" : 0,
+    "axErrorName" : "kAXErrorSuccess (0)",
+    "classification" : "SEMANTIC_SUCCESS",
+    "controlClass" : "Checkbox (<input type=checkbox>)",
+    "cursorAfter" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorBefore" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorDeltaPt" : 0,
+    "elementRole" : "AXCheckBox",
+    "elementTitle" : "Semantic Test Checkbox",
+    "id" : "SAFARI-CHECKBOX-TAP",
+    "interactionClass" : "Tap",
+    "invariantPassed" : true,
+    "notes" : "Safari HTML checkbox toggles state via AXPress.",
+    "settableAttributes" : [
+      "AXFocused",
+      "AXSelectedTextMarkerRange"
+    ],
+    "supportedActions" : [
+      "AXPress",
+      "AXShowMenu",
+      "AXScrollToVisible"
+    ],
+    "targetApp" : "Safari"
+  },
+  {
+    "actionAttempted" : "Set kAXFocusedAttribute = true",
+    "appAfter" : "TextEdit",
+    "appBefore" : "TextEdit",
+    "axErrorCode" : 0,
+    "axErrorName" : "kAXErrorSuccess (0)",
+    "classification" : "SEMANTIC_SUCCESS",
+    "controlClass" : "TextField (<input type=text>)",
+    "cursorAfter" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorBefore" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorDeltaPt" : 0,
+    "elementRole" : "AXTextField",
+    "elementTitle" : "Text Input Field",
+    "id" : "SAFARI-TEXT-FOCUS",
+    "interactionClass" : "Text Focus",
+    "invariantPassed" : true,
+    "notes" : "Safari HTML input field accepts semantic focus via AXFocused attribute.",
+    "settableAttributes" : [
+      "AXSelectedText",
+      "AXFocused",
+      "AXSelectedTextRange",
+      "AXValue",
+      "AXSelectedTextMarkerRange"
+    ],
+    "supportedActions" : [
+      "AXPress",
+      "AXShowMenu",
+      "AXScrollToVisible"
+    ],
+    "targetApp" : "Safari"
+  },
+  {
+    "actionAttempted" : "kAXPressAction",
+    "appAfter" : "TextEdit",
+    "appBefore" : "TextEdit",
+    "axErrorCode" : 0,
+    "axErrorName" : "kAXErrorSuccess (0)",
+    "classification" : "SEMANTIC_SUCCESS",
+    "controlClass" : "Dropdown (<select>)",
+    "cursorAfter" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorBefore" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorDeltaPt" : 0,
+    "elementRole" : "AXPopUpButton",
+    "elementTitle" : "",
+    "id" : "SAFARI-DROPDOWN",
+    "interactionClass" : "Selection\/Menu",
+    "invariantPassed" : true,
+    "notes" : "Safari <select> dropdown triggers option menu via AXPress.",
+    "settableAttributes" : [
+      "AXFocused",
+      "AXSelectedTextMarkerRange"
+    ],
+    "supportedActions" : [
+      "AXPress",
+      "AXShowMenu",
+      "AXScrollToVisible"
+    ],
+    "targetApp" : "Safari"
+  },
+  {
+    "actionAttempted" : "Set kAXValueAttribute = 0.5 (DIRECT_VALUE)",
+    "appAfter" : "TextEdit",
+    "appBefore" : "TextEdit",
+    "axErrorCode" : 0,
+    "axErrorName" : "kAXErrorSuccess (0)",
+    "classification" : "SEMANTIC_UNSUPPORTED",
+    "controlClass" : "Document ScrollBar",
+    "cursorAfter" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorBefore" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorDeltaPt" : 0,
+    "elementRole" : "AXScrollBar",
+    "elementTitle" : "Safari Window ScrollBar",
+    "id" : "SAFARI-DOC-SCROLL-DIRECT",
+    "interactionClass" : "Scroll",
+    "invariantPassed" : true,
+    "notes" : "WebKit returns kAXErrorSuccess on AXScrollBar.AXValue assignment but ignores it internally; viewport position does not change.",
+    "settableAttributes" : [
+      "AXValue",
+      "AXSelectedTextMarkerRange"
+    ],
+    "supportedActions" : [
+      "AXShowMenu",
+      "AXScrollToVisible"
+    ],
+    "targetApp" : "Safari"
+  },
+  {
+    "actionAttempted" : "AXScrollToVisible on descendant item #20",
+    "appAfter" : "Safari",
+    "appBefore" : "Safari",
+    "axErrorCode" : 0,
+    "axErrorName" : "kAXErrorSuccess (0)",
+    "classification" : "SEMANTIC_OTHER",
+    "controlClass" : "Nested Container (<div style=overflow-y:scroll>)",
+    "cursorAfter" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorBefore" : [
+      1499.1951904296875,
+      1051.4457550048828
+    ],
+    "cursorDeltaPt" : 0,
+    "elementRole" : "AXGroup (Nested DOM)",
+    "elementTitle" : "Nested Scroll Container Item",
+    "id" : "SAFARI-NESTED-SCROLL",
+    "interactionClass" : "Scroll",
+    "invariantPassed" : true,
+    "notes" : "WebKit does not expose AXScrollArea\/AXScrollBar for overflow:scroll divs. Proportional continuous pan scrolling is UNSUPPORTED. Descendants expose discrete AXScrollToVisible action.",
+    "settableAttributes" : [
+      "AXSelectedTextMarkerRange"
+    ],
+    "supportedActions" : [
+      "AXShowMenu",
+      "AXScrollToVisible"
+    ],
+    "targetApp" : "Safari"
+  }
+]

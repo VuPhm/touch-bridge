@@ -1,3 +1,5 @@
+/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/AXPermissionManager.swift.o
+/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/AXSemanticEngine.swift.o
 /Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/CalibrationEngine.swift.o
 /Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/CalibrationView.swift.o
 /Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/CoordinateSpaces.swift.o
@@ -6,6 +8,8 @@
 /Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/HIDDeviceInspector.swift.o
 /Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/HIDInputMonitor.swift.o
 /Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/HIDNames.swift.o
+/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/SemanticTestView.swift.o
+/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/SingleTapRecognizer.swift.o
 /Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/TimestampValidator.swift.o
 /Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/TouchBridgeController.swift.o
 /Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/release/TouchBridgeProbe.build/TouchFrameAggregator.swift.o
