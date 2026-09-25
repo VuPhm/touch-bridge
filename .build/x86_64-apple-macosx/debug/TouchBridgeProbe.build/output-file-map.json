@@ -1,0 +1,71 @@
+{
+  "": {
+    "swift-dependencies": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/master.swiftdeps"
+  },
+  "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/CalibrationEngine.swift": {
+    "dependencies": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/CalibrationEngine.d",
+    "object": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/CalibrationEngine.swift.o",
+    "swiftmodule": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/CalibrationEngine~partial.swiftmodule",
+    "swift-dependencies": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/CalibrationEngine.swiftdeps"
+  },
+  "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/CalibrationView.swift": {
+    "dependencies": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/CalibrationView.d",
+    "object": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/CalibrationView.swift.o",
+    "swiftmodule": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/CalibrationView~partial.swiftmodule",
+    "swift-dependencies": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/CalibrationView.swiftdeps"
+  },
+  "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/CoordinateSpaces.swift": {
+    "dependencies": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/CoordinateSpaces.d",
+    "object": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/CoordinateSpaces.swift.o",
+    "swiftmodule": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/CoordinateSpaces~partial.swiftmodule",
+    "swift-dependencies": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/CoordinateSpaces.swiftdeps"
+  },
+  "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/DiagnosticView.swift": {
+    "dependencies": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/DiagnosticView.d",
+    "object": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/DiagnosticView.swift.o",
+    "swiftmodule": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/DiagnosticView~partial.swiftmodule",
+    "swift-dependencies": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/DiagnosticView.swiftdeps"
+  },
+  "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/DisplayDiscovery.swift": {
+    "dependencies": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/DisplayDiscovery.d",
+    "object": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/DisplayDiscovery.swift.o",
+    "swiftmodule": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/DisplayDiscovery~partial.swiftmodule",
+    "swift-dependencies": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/DisplayDiscovery.swiftdeps"
+  },
+  "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/HIDDeviceInspector.swift": {
+    "dependencies": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/HIDDeviceInspector.d",
+    "object": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/HIDDeviceInspector.swift.o",
+    "swiftmodule": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/HIDDeviceInspector~partial.swiftmodule",
+    "swift-dependencies": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/HIDDeviceInspector.swiftdeps"
+  },
+  "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/HIDInputMonitor.swift": {
+    "dependencies": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/HIDInputMonitor.d",
+    "object": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/HIDInputMonitor.swift.o",
+    "swiftmodule": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/HIDInputMonitor~partial.swiftmodule",
+    "swift-dependencies": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/HIDInputMonitor.swiftdeps"
+  },
+  "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/HIDNames.swift": {
+    "dependencies": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/HIDNames.d",
+    "object": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/HIDNames.swift.o",
+    "swiftmodule": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/HIDNames~partial.swiftmodule",
+    "swift-dependencies": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/HIDNames.swiftdeps"
+  },
+  "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/TouchBridgeController.swift": {
+    "dependencies": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/TouchBridgeController.d",
+    "object": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/TouchBridgeController.swift.o",
+    "swiftmodule": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/TouchBridgeController~partial.swiftmodule",
+    "swift-dependencies": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/TouchBridgeController.swiftdeps"
+  },
+  "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/TouchFrameAggregator.swift": {
+    "dependencies": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/TouchFrameAggregator.d",
+    "object": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/TouchFrameAggregator.swift.o",
+    "swiftmodule": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/TouchFrameAggregator~partial.swiftmodule",
+    "swift-dependencies": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/TouchFrameAggregator.swiftdeps"
+  },
+  "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/main.swift": {
+    "dependencies": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/main.d",
+    "object": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/main.swift.o",
+    "swiftmodule": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/main~partial.swiftmodule",
+    "swift-dependencies": "/Users/vup/Documents/agy/touch-bridge/.build/x86_64-apple-macosx/debug/TouchBridgeProbe.build/main.swiftdeps"
+  }
+}

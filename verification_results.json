@@ -1,0 +1,152 @@
+{
+  "averageErrorPt" : 7.9321871503562331,
+  "cursorRemainedUntouched" : true,
+  "diagonalDrag" : {
+    "maxPerpendicularErrorPt" : 117.78990867797376,
+    "meanPerpendicularErrorPt" : 58.474596931944035,
+    "samplesRecorded" : 58
+  },
+  "displayBounds" : "1280x960",
+  "maximumErrorPt" : 13.951382350857079,
+  "regionalErrors" : {
+    "center" : {
+      "errorPt" : 5.194114718447512
+    },
+    "corners" : {
+      "count" : 4,
+      "maxErrorPt" : 11.716630856137639,
+      "meanErrorPt" : 8.3192847052329846
+    },
+    "edges" : {
+      "count" : 4,
+      "maxErrorPt" : 8.9375236326592002,
+      "meanErrorPt" : 6.7248089033314553
+    }
+  },
+  "targetDisplayID" : 79846407,
+  "targetDisplayName" : "TYPE C",
+  "targets" : [
+    {
+      "errorPt" : 11.716630856137639,
+      "errorX" : -11.259416504710586,
+      "errorY" : 3.2411384716558302,
+      "id" : "TL",
+      "label" : "Corner: Top-Left",
+      "observedX" : 52.740583495289414,
+      "observedY" : 67.24113847165583,
+      "targetX" : 64,
+      "targetY" : 64,
+      "verified" : true
+    },
+    {
+      "errorPt" : 3.132522197484521,
+      "errorX" : -0.33507807261003109,
+      "errorY" : -3.1145494060921877,
+      "id" : "TR",
+      "label" : "Corner: Top-Right",
+      "observedX" : 1215.66492192739,
+      "observedY" : 60.885450593907812,
+      "targetX" : 1216,
+      "targetY" : 64,
+      "verified" : true
+    },
+    {
+      "errorPt" : 7.6958019921154905,
+      "errorX" : 5.5047419243576314,
+      "errorY" : 5.3780279515885923,
+      "id" : "BR",
+      "label" : "Corner: Bottom-Right",
+      "observedX" : 1221.5047419243576,
+      "observedY" : 901.37802795158859,
+      "targetX" : 1216,
+      "targetY" : 896,
+      "verified" : true
+    },
+    {
+      "errorPt" : 10.732183775194287,
+      "errorX" : -1.7238971625670985,
+      "errorY" : -10.592825267955504,
+      "id" : "BL",
+      "label" : "Corner: Bottom-Left",
+      "observedX" : 62.276102837432902,
+      "observedY" : 885.4071747320445,
+      "targetX" : 64,
+      "targetY" : 896,
+      "verified" : true
+    },
+    {
+      "errorPt" : 5.194114718447512,
+      "errorX" : 4.2345312141862905,
+      "errorY" : 3.0079184005679167,
+      "id" : "CTR",
+      "label" : "Center Target",
+      "observedX" : 644.23453121418629,
+      "observedY" : 483.00791840056792,
+      "targetX" : 640,
+      "targetY" : 480,
+      "verified" : true
+    },
+    {
+      "errorPt" : 6.4826718088210953,
+      "errorX" : -1.8598387713610691,
+      "errorY" : 6.2101556764243782,
+      "id" : "ET",
+      "label" : "Edge: Top",
+      "observedX" : 638.14016122863893,
+      "observedY" : 70.210155676424378,
+      "targetX" : 640,
+      "targetY" : 64,
+      "verified" : true
+    },
+    {
+      "errorPt" : 8.9375236326592002,
+      "errorX" : 5.21188100733184,
+      "errorY" : 7.2605526683411199,
+      "id" : "EB",
+      "label" : "Edge: Bottom",
+      "observedX" : 645.21188100733184,
+      "observedY" : 903.26055266834112,
+      "targetX" : 640,
+      "targetY" : 896,
+      "verified" : true
+    },
+    {
+      "errorPt" : 6.5618690855051378,
+      "errorX" : -6.4502209755605548,
+      "errorY" : 1.2053112717247245,
+      "id" : "EL",
+      "label" : "Edge: Left",
+      "observedX" : 57.549779024439445,
+      "observedY" : 481.20531127172472,
+      "targetX" : 64,
+      "targetY" : 480,
+      "verified" : true
+    },
+    {
+      "errorPt" : 4.9171710863403888,
+      "errorX" : 3.254056491408619,
+      "errorY" : 3.6864193797048301,
+      "id" : "ER",
+      "label" : "Edge: Right",
+      "observedX" : 1219.2540564914086,
+      "observedY" : 483.68641937970483,
+      "targetX" : 1216,
+      "targetY" : 480,
+      "verified" : true
+    },
+    {
+      "errorPt" : 13.951382350857079,
+      "errorX" : 9.9321850864188264,
+      "errorY" : -9.7975899541124818,
+      "id" : "DIAG",
+      "label" : "Diagonal Drag",
+      "observedX" : 969.93218508641883,
+      "observedY" : 710.20241004588752,
+      "targetX" : 960,
+      "targetY" : 720,
+      "verified" : true
+    }
+  ],
+  "totalTargets" : 10,
+  "verifiedCount" : 10
+}

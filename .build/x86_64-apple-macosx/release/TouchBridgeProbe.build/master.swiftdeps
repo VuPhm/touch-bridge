@@ -1,0 +1,17 @@
+version: "Apple Swift version 6.0.3 (swiftlang-6.0.3.1.10 clang-1600.0.30.1)"
+options: "7720393a186bc19bc51e513e456e85f305f18456be91fc684bc1290db1896c46"
+build_start_time: [1790324420, 252294000]
+build_end_time: [1790324429, 850297000]
+inputs:
+  "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/CalibrationEngine.swift": [1790323034, 725046732]
+  "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/CalibrationView.swift": [1790324408, 943697110]
+  "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/CoordinateSpaces.swift": [1790323015, 714716858]
+  "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/DiagnosticView.swift": [1790323673, 731672297]
+  "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/DisplayDiscovery.swift": [1790323144, 772697547]
+  "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/HIDDeviceInspector.swift": [1790322347, 577692752]
+  "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/HIDInputMonitor.swift": [1790322374, 289380634]
+  "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/HIDNames.swift": [1790322064, 762820244]
+  "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/TimestampValidator.swift": [1790323910, 146689831]
+  "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/TouchBridgeController.swift": [1790324383, 200641829]
+  "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/TouchFrameAggregator.swift": [1790323046, 664089703]
+  "/Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/main.swift": [1790323922, 384014958]
