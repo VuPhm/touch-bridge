@@ -2,7 +2,12 @@
 
 **Date:** 2026-09-25  
 **Milestone:** P2-B (Empirical Semantic Viability & Capability Study)  
-**System:** macOS 15.x (Darwin 24.x, Apple Silicon / arm64)  
+**Status:** CLOSED  
+**System / Host Hardware:** MacBook Pro 2019 Intel  
+**Architecture:** `x86_64`  
+**Operating System:** macOS 14.8.9 (Build 23J631)  
+**Binary Executable:** `TouchBridgeProbe` (Mach-O 64-bit executable `x86_64`)  
+**Metadata Correction Note:** The previous report header stating `macOS 15.x (Darwin 24.x, Apple Silicon / arm64)` was an administrative report metadata error. The host platform has been manually verified via terminal inspection (`uname -m`, `sw_vers`, `file .build/release/TouchBridgeProbe`). All empirical P2-B interaction measurements and datasets remain valid and unaltered.  
 **Target Hardware:** USB2IIC_CTP_CONTROL (`VID: 0x1A86`, `PID: 0xE5E3`)  
 **Target Display:** TYPE C 1280x960 External Touchscreen (`DisplayID: 79846407`, CG Bounds: `[1792.0, 160.0, 1280.0, 960.0]`)  
 **Calibration Profile:** `TouchBridgeCalibration.json` (Affine 2x3, Mean Residual Error: 5.21 pt, Max: 5.29 pt)  
@@ -24,7 +29,7 @@ Through bounded AX capability inspection and empirical physical/semantic testing
 2. **Text Field Focus:** **PROVEN** across AppKit `NSTextField`, `TextEdit` document `AXTextArea`, and Safari `<input type="text">` without cursor displacement. Tapping an editable element activates the target application and engages keyboard editing focus, permitting real physical keyboard input.
 3. **List & Table Selection:** **PROVEN** across AppKit `NSTableView` and Finder list views via settable `kAXSelectedAttribute` and `AXShowDefaultUI`.
 4. **Menus & Popups:** **PROVEN** across AppKit `NSPopUpButton` and Safari `<select>` dropdowns via semantic action dispatch.
-5. **Continuous Semantic Scroll:** **APPLICATION-DEPENDENT / PARTIAL**. In AppKit (`NSScrollView`, `TextEdit`, `Finder`), continuous proportional scrolling is **PROVEN** via writable `AXScrollBar.AXValue` (`DIRECT_VALUE`) with zero cursor movement. However, in **Safari/WebKit**, direct `AXValue` mutation is ignored by the rendering engine (`SEMANTIC_UNSUPPORTED`), and nested scrollable `div`s expose no `AXScrollArea` or `AXScrollBar` at all (only discrete `AXScrollToVisible` on child nodes).
+5. **Continuous Semantic Scroll:** **APPLICATION-DEPENDENT / PARTIAL**. In AppKit (`NSScrollView`, `TextEdit`, `Finder`), continuous proportional scrolling is **PROVEN** via writable `AXScrollBar.AXValue` (`DIRECT_VALUE`) with zero cursor movement. In **Safari/WebKit**, direct `AXValue` mutation is ignored by the rendering engine (`SEMANTIC_UNSUPPORTED`), and nested scrollable `div`s expose no `AXScrollArea` or `AXScrollBar` at all (empirically tested limitations). Other web browsers (e.g. Chrome, Firefox) were **NOT TESTED** under this milestone.
 6. **Cursor Isolation:** **100% INVIOLATE**. In all 18 tested interaction classes and control categories, cursor delta was measured at **exactly 0.00 pt**.
 
 ---
@@ -38,7 +43,7 @@ Per milestone constraints, compatibility is classified independently by interact
 | **Tap / Press** | **PROVEN** | Operates reliably across standard `NSButton`, `NSCheckbox`, radio buttons, segmented tabs, Safari buttons, checkboxes, and links via `kAXPressAction`. In Catalyst/SwiftUI (Calculator), returns `kAXErrorCannotComplete (-25204)` due to AX messaging timeout, but state transitions execute reliably. |
 | **Menu / Popup** | **PROVEN** | Operates reliably on `NSPopUpButton`, Finder view popups, and Safari `<select>` elements. Tapping the control dispatches `AXPress`, exposing the menu; subsequent taps hit-test `AXMenuItem` to execute selection. Cursor remains stationary. |
 | **Text Field Focus** | **PROVEN** | Operates reliably on `NSTextField`, `TextEdit` `AXTextArea`, and Safari `<input type="text">`. Setting `kAXFocusedAttribute = true` transfers editing focus without cursor warping. Physical keyboard input routes to the touched field. (Character caret placement is out of scope). |
-| **Semantic Scroll** | **PARTIAL** | **Split by UI framework:**<br>• **AppKit (`NSScrollView`, TextEdit, Finder):** **PROVEN** via continuous proportional `AXScrollBar.AXValue` setting (`DIRECT_VALUE`).<br>• **Safari Document:** **UNSUPPORTED** via `DIRECT_VALUE` (WebKit ignores `AXValue` write). Only discrete `AXScrollToVisible` works.<br>• **Safari Nested `<div style="overflow:auto">`:** **UNSUPPORTED** for continuous pan (no `AXScrollArea` or `AXScrollBar` exposed). Descendants support `AXScrollToVisible`. |
+| **Semantic Scroll** | **PARTIAL** | **Split by UI framework:**<br>• **AppKit (`NSScrollView`, TextEdit, Finder):** **PROVEN** via continuous proportional `AXScrollBar.AXValue` setting (`DIRECT_VALUE`).<br>• **Safari / WebKit Document:** **UNSUPPORTED** via `DIRECT_VALUE` (WebKit ignores `AXValue` write; empirically tested limitation). Only discrete `AXScrollToVisible` works.<br>• **Safari Nested `<div style="overflow:auto">`:** **UNSUPPORTED** for continuous pan (no `AXScrollArea` or `AXScrollBar` exposed; empirically tested limitation). Descendants support `AXScrollToVisible`.<br>• **Other Browsers (Chrome, Firefox):** **NOT TESTED**. |
 | **List / Row Selection** | **PROVEN** | Operates reliably on `NSTableView` rows and Finder list rows (`AXRow`) via settable `kAXSelectedAttribute` or `AXShowDefaultUI` without pointer movement. |
 | **Window Controls** | **PROVEN** | Operates reliably on standard window close, minimize, and zoom buttons via `kAXPressAction`. |
 
@@ -112,7 +117,7 @@ Continuous, pointer-independent touch pan scrolling was investigated across five
 - **Verdict:** **UNSUPPORTED for continuous proportional drag**. Classified as **`SEMANTIC_OTHER`** (discrete target revelation only).
 
 ### Conclusion on Semantic Scroll Viability:
-> **Continuous pointer-independent touch scrolling is genuinely viable in standard AppKit native applications via `AXScrollBar.AXValue`. It is NOT viable in WebKit/Safari or nested web scroll areas using public Accessibility semantics alone.**
+> **Continuous pointer-independent touch scrolling is genuinely viable in standard AppKit native applications via `AXScrollBar.AXValue`. In WebKit/Safari and nested web scroll areas, it is an empirically tested limitation using public Accessibility semantics alone. Other web browsers (e.g. Chrome, Firefox) were NOT TESTED under this study.**
 
 ---
 
@@ -196,7 +201,8 @@ The study demarcates three unambiguous compatibility zones:
 │      unless overridden by custom AppKit subclass.                      │
 ├────────────────────────────────────────────────────────────────────────┤
 │ 3. UNSUPPORTED WITHOUT SYNTHETIC EVENT / MOUSE EMULATION               │
-│    • Continuous smooth touch panning in web browsers (Safari, Chrome)  │
+│    • Safari/WebKit continuous scroll: empirically tested limitation    │
+│    • Other web browsers (Chrome, Firefox, etc.): NOT TESTED            │
 │    • Arbitrary nested custom DOM scroll containers (`overflow: auto`)  │
 │    • Canvas-based UI (Figma, Google Docs canvas, WebGL games)          │
 │    • Character-exact text caret placement inside paragraphs            │
@@ -210,15 +216,30 @@ The study demarcates three unambiguous compatibility zones:
 
 Per milestone requirements, exactly one option is chosen based on empirical data:
 
-### **Recommendation B — Continue, but deliberately limited interaction profile**
+### **Recommendation: Continue with a deliberately limited native-first interaction profile**
 
 #### Technical Justification:
 1. **Why not A (Full general-purpose native-first prototype)?**  
-   Continuous touch scrolling is broken in web browsers (WebKit/Safari) under pure public Accessibility semantics. A day-to-day touchscreen device on macOS cannot claim full desktop compatibility if scrolling web pages and nested web containers fails to support continuous finger panning. Claiming "A" would misrepresent WebKit's architectural refusal to accept semantic `AXValue` scroll updates.
+   Continuous touch scrolling in Safari/WebKit is an empirically tested limitation under pure public Accessibility semantics (other browsers: NOT TESTED). A day-to-day touchscreen device on macOS cannot claim full desktop compatibility if scrolling web pages and nested web containers fails to support continuous finger panning. Claiming "A" would misrepresent WebKit's architectural refusal to accept semantic `AXValue` scroll updates.
 2. **Why not C (Stop semantic-only productization)?**  
    Semantic interaction is astonishingly robust for **discrete control surfaces**. Taps, checkboxes, text field focus, popup menus, row selection, and window controls work with 100% cursor isolation across processes. Furthermore, native AppKit applications (including Finder and TextEdit) *do* support continuous proportional scrolling via `AXScrollBar.AXValue`.
 3. **The Viable Path (Option B):**  
-   TouchBridge is highly viable when positioned as a **companion control surface, secondary touch dashboard, native utility console, or bounded productivity touchscreen** (e.g. DJ surfaces, editing consoles, Finder launchers, form-filling consoles). In this profile, TouchBridge delivers an experience that no commercial macOS touch driver offers: **direct touchscreen operation without hijacking or displacing the user's primary mouse cursor.**
+   TouchBridge is highly viable when positioned as a **companion control surface, secondary touch dashboard, native utility console, or bounded productivity touchscreen** (e.g. DJ surfaces, editing consoles, Finder launchers, form-filling consoles). In this profile, TouchBridge achieves the project's goal of **direct touchscreen operation without hijacking or displacing the user's primary mouse cursor**, without asserting unverified claims regarding commercial macOS touch drivers.
+
+---
+
+## 8. Milestone Closure
+
+**Milestone P2-B Status:** **CLOSED**
+
+- **Verified Target Environment:** MacBook Pro 2019 Intel, `x86_64`, macOS 14.8.9 (Build 23J631), `TouchBridgeProbe` `x86_64`.
+- **Administrative Correction:** Previous header metadata referencing `macOS 15.x / Darwin 24.x / Apple Silicon / arm64` corrected as a report metadata error; empirical P2-B test datasets and results remain intact and valid.
+- **Browser Compatibility Clarification:**
+  - Safari/WebKit: empirically tested limitation (direct `AXValue` scroll writes ignored; nested containers lack scroller AX roles).
+  - Other browsers (e.g., Chrome, Firefox): **NOT TESTED**.
+- **Commercial Driver Qualification:** Removed unestablished assertions regarding commercial third-party touch drivers.
+- **Preserved Recommendation:** **Continue with a deliberately limited native-first interaction profile.**
+- **Next Milestone:** Not implemented automatically; deferred awaiting user instruction.
 
 ---
 
