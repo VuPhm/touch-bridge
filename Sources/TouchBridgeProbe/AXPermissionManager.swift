@@ -10,6 +10,7 @@ public final class AXPermissionManager {
     public static let shared = AXPermissionManager()
     
     private var hasPromptedUser: Bool = false
+    public private(set) var promptRequestIssuedByLastCheck: Bool = false
     
     private init() {}
     
@@ -22,12 +23,14 @@ public final class AXPermissionManager {
     /// Checks trust status and optionally requests prompt from macOS if not trusted.
     /// Strictly guarantees no continuous prompt spamming.
     public func checkPermission(requestPromptIfNeeded: Bool = false) -> AXPermissionStatus {
+        promptRequestIssuedByLastCheck = false
         if isTrusted() {
             return .granted
         }
         
         if requestPromptIfNeeded && !hasPromptedUser {
             hasPromptedUser = true
+            promptRequestIssuedByLastCheck = true
             let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
             let trusted = AXIsProcessTrustedWithOptions(options)
             return trusted ? .granted : .unavailable

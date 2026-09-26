@@ -19,6 +19,7 @@ func printHelp() {
       --test-timestamps   Empirically validate real HID frame timestamps across gestures (P1.5 requirement 1).
       --test-arbitration  Launch P3-03 Interaction Router & Gesture Arbitration Testbed Window.
       --test-runtime      Run automated 29-test runtime and gesture arbitration validation suite.
+      --request-accessibility  Request macOS Accessibility permission for TouchBridgeProbe, then exit.
       --live-diagnostics  Run real-time P3-03R live diagnostic telemetry stream (contacts, speed, backend, seize).
       --verify-arbitration Run live physical tap-vs-pan arbitration validation across all scenarios.
       --verify-gating     Run live hardware Enable/Disable gating verification.
@@ -32,6 +33,23 @@ func printHelp() {
     General Options:
       --help, -h          Show this help message.
     """)
+}
+
+func requestAccessibilityPermissionFromCLI() {
+    let permissionManager = AXPermissionManager.shared
+    let trustedBeforeRequest = permissionManager.isTrusted()
+    print("Accessibility permission before request: \(trustedBeforeRequest ? "TRUSTED" : "UNTRUSTED")")
+
+    _ = permissionManager.checkPermission(requestPromptIfNeeded: true)
+    let trustedAfterRequest = permissionManager.isTrusted()
+    print("Accessibility permission request issued: \(permissionManager.promptRequestIssuedByLastCheck ? "YES" : "NO (already requested during this process)")")
+    print("Accessibility permission after request: \(trustedAfterRequest ? "TRUSTED" : "UNTRUSTED")")
+    print("macOS permission UI may appear asynchronously.")
+    print("Enable TouchBridgeProbe in System Settings → Privacy & Security → Accessibility.")
+    if !trustedAfterRequest {
+        print("Permission is not yet granted; relaunch TouchBridgeProbe after enabling it.")
+    }
+    fflush(stdout)
 }
 
 func runCLIMonitor(display: DisplayMetadata, targetDevice: DeviceMetadata, duration: Double?) {
@@ -345,12 +363,16 @@ func main() {
     }
     
     let liveDiagnostics = args.contains("--live-diagnostics") || args.contains("--diagnostics")
+    if args.contains("--request-accessibility") && !liveDiagnostics {
+        requestAccessibilityPermissionFromCLI()
+        exit(0)
+    }
     if liveDiagnostics {
         var dur: Double? = nil
         if let dIdx = args.firstIndex(of: "--duration"), dIdx + 1 < args.count, let d = Double(args[dIdx + 1]) {
             dur = d
         }
-        LiveDiagnosticsRunner.shared.start(duration: dur)
+        guard LiveDiagnosticsRunner.shared.start(duration: dur) else { exit(1) }
         CFRunLoopRun()
         return
     }
@@ -628,4 +650,3 @@ func main() {
 }
 
 main()
-

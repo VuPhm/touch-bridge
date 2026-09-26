@@ -16,9 +16,36 @@ public final class LiveDiagnosticsRunner: NSObject, TouchBridgeRuntimeDelegate {
         super.init()
     }
     
-    public func start(duration: Double? = nil) {
+    @discardableResult
+    public func start(duration: Double? = nil) -> Bool {
+        let permissionManager = AXPermissionManager.shared
+        let trustedBeforeRequest = permissionManager.isTrusted()
+        if !trustedBeforeRequest {
+            // Release any stale ownership before prompting. No device start/seize is
+            // attempted until trust has actually become available.
+            runtime.setEnabled(false)
+            runtime.shutdown()
+        }
+        _ = permissionManager.checkPermission(requestPromptIfNeeded: true)
+        let trustedAfterRequest = permissionManager.isTrusted()
+        print("Accessibility permission before diagnostics: \(trustedBeforeRequest ? "TRUSTED" : "UNTRUSTED")")
+        print("Accessibility permission request issued: \(permissionManager.promptRequestIssuedByLastCheck ? "YES" : "NO")")
+        print("Accessibility permission after request: \(trustedAfterRequest ? "TRUSTED" : "UNTRUSTED")")
+        if !trustedAfterRequest {
+            print("macOS permission UI may appear asynchronously.")
+            print("Enable TouchBridgeProbe in System Settings → Privacy & Security → Accessibility.")
+            print("Accessibility permission required — touchscreen interaction not enabled")
+            fflush(stdout)
+            return false
+        }
+
+        guard runtime.start() else {
+            print("Accessibility permission required — touchscreen interaction not enabled")
+            fflush(stdout)
+            return false
+        }
         self.isRunning = true
-        
+
         let boundDisplay = DisplayManager.shared.findExternalTouchscreenDisplay()
         
         print("""
@@ -45,14 +72,13 @@ public final class LiveDiagnosticsRunner: NSObject, TouchBridgeRuntimeDelegate {
         fflush(stdout)
         
         runtime.delegate = self
-        runtime.start()
         runtime.setEnabled(true)
         
         // Print Seize status
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             guard let self = self else { return }
             let seized = self.runtime.device.isExclusivelySeized
-            let status = seized ? "EXCLUSIVE SEIZED [PASS]" : "SHARED ACCESS [FALLBACK]"
+            let status = seized ? "EXCLUSIVE SEIZED [PASS]" : "OWNERSHIP UNAVAILABLE [INTERACTION DISABLED]"
             print("[HID OWNERSHIP] Device status: \(status)")
             if seized {
                 print("  -> macOS WindowServer / IOHIDEventSystem digitizer observation DETACHED.")
@@ -80,6 +106,7 @@ public final class LiveDiagnosticsRunner: NSObject, TouchBridgeRuntimeDelegate {
             LiveDiagnosticsRunner.shared.stop()
             exit(0)
         }
+        return true
     }
     
     public func stop() {

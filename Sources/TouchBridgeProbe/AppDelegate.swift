@@ -29,7 +29,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarActionDe
         runtime.delegate = self
         
         // 4. Start Runtime (Device, Display, Calibration, AX)
-        runtime.start()
+        _ = runtime.start(requestAccessibilityPermission: true)
         
         // 5. Update Menu Bar and Settings with Initial Snapshot
         menuBar.update(with: runtime.currentSnapshot)

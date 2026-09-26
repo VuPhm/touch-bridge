@@ -46,6 +46,7 @@ public final class TouchBridgeRuntime: NSObject, TouchscreenDeviceDelegate, HIDF
     // Overrides
     public var targetDisplayIDOverride: CGDirectDisplayID? = nil
     public var customProfilePath: String? = nil
+    private var hasStartedRuntime: Bool = false
     
     public var currentSnapshot: RuntimeSnapshot {
         RuntimeSnapshot(
@@ -78,11 +79,29 @@ public final class TouchBridgeRuntime: NSObject, TouchscreenDeviceDelegate, HIDF
     
     // MARK: - Lifecycle
     
-    public func start() {
+    @discardableResult
+    public func start(requestAccessibilityPermission: Bool = false) -> Bool {
         TouchBridgeLogger.info(.lifecycle, "Starting TouchBridge Prototype Runtime (P3-01)...")
         
-        // 1. Accessibility State (Passive check without prompt spamming)
+        // Request permission before any HID seize. Trust remains fail-closed until
+        // AXIsProcessTrusted() actually reports true.
+        _ = permissionManager.checkPermission(requestPromptIfNeeded: requestAccessibilityPermission)
         updateAccessibilityState()
+        guard permissionManager.isTrusted() else {
+            if hasStartedRuntime {
+                setEnabled(false)
+                device.stop()
+                displayManager.stopMonitoring()
+                hasStartedRuntime = false
+            }
+            print("Accessibility permission required — touchscreen interaction not enabled")
+            print("Enable TouchBridgeProbe in System Settings → Privacy & Security → Accessibility.")
+            print("macOS permission UI may appear asynchronously; relaunch or request permission again after enabling it.")
+            fflush(stdout)
+            return false
+        }
+        guard !hasStartedRuntime else { return true }
+        hasStartedRuntime = true
         
         // 2. Discover Display Target
         resolveAndBindDisplay()
@@ -99,12 +118,14 @@ public final class TouchBridgeRuntime: NSObject, TouchscreenDeviceDelegate, HIDF
         evaluateEngineState()
         
         TouchBridgeLogger.info(.lifecycle, "TouchBridge Runtime initialized: Intent=\(userIntent), Capability=\(runtimeCapability), Engine=\(engineState)")
+        return true
     }
     
     public func shutdown() {
         TouchBridgeLogger.info(.lifecycle, "Shutting down TouchBridge Runtime...")
         device.stop()
         displayManager.stopMonitoring()
+        hasStartedRuntime = false
         evaluateEngineState()
     }
     
@@ -147,11 +168,14 @@ public final class TouchBridgeRuntime: NSObject, TouchscreenDeviceDelegate, HIDF
         if status == .granted {
             accessibilityState = .available
             evaluateEngineState()
+            _ = start()
         } else {
             // Open System Settings -> Privacy & Security -> Accessibility
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
                 NSWorkspace.shared.open(url)
             }
+            print("Accessibility permission required — touchscreen interaction not enabled")
+            print("Enable TouchBridgeProbe in System Settings → Privacy & Security → Accessibility.")
         }
     }
     
