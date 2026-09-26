@@ -72,13 +72,19 @@ public final class RuntimeValidator {
         test34_SecondContactRebasesWithoutDeltaSpike()
         test35_PrimaryLiftsFirstDirectPanContinues()
         test36_SecondaryLiftsFirstDirectPanContinues()
-        test37_CGClickPointerIsolationMeasured()
+        test37_CGFallbackDefaultPolicy()
         test38_FingerDownSmoothingBounded()
         test39_ReleaseMomentumStillInterruptedByNewTouch()
-        test40_TapRouting_GenericFocusableScrollAreaFallsBack()
-        test41_TapRouting_FailedFocusFallsThrough()
-        test42_TapRouting_TextFieldFocusConsumesTap()
-        test43_TapRouting_ButtonPressPrecedesFocus()
+        test40_TapResolver_GroupButton()
+        test41_TapResolver_GroupLink()
+        test42_TapResolver_ShowMenuNotPrimary()
+        test43_TapResolver_ScrollAreaChild()
+        test44_TapResolver_DeepestOverlappingAction()
+        test45_TapRouting_TextAreaFocus()
+        test46_TapRouting_MenuBarItemPress()
+        test47_TapRouting_FailedPressFallsThrough()
+        test48_TapRouting_UnresolvedSuppressesCursorMovingFallback()
+        test49_TapRouting_CursorRestoreExperimentClassification()
         
         let passed = results.filter { $0.passed }.count
         let failed = results.filter { !$0.passed }.count
@@ -1195,17 +1201,11 @@ public final class RuntimeValidator {
         recognizer.reset()
     }
 
-    private func test37_CGClickPointerIsolationMeasured() {
-        let pointNow = SafetyInvariants.currentCursorPosition()
-        let point = CGPoint(x: pointNow.x + 24, y: pointNow.y + 18)
-        let sample = TouchSample(phase: .down, rawX: 1, rawY: 1, normX: 0, normY: 0)
-        let session = InteractionSession(startSample: sample, localPoint: DisplayLocalPoint(cgPoint: point), globalPoint: GlobalDisplayPoint(cgGlobal: point), context: nil)
-        let router = SemanticInteractionRouter()
-        router.executeCoreGraphicsPrimaryClick(point: point, session: session)
-        let measuredDelta = hypot(session.cursorAfter.x - session.cursorBefore.x, session.cursorAfter.y - session.cursorBefore.y)
-        let measuredPass = measuredDelta <= 0.001
-        let evidenceMatchesMeasurement = session.pointerIsolationSatisfied == measuredPass
-        record(name: "Test 37: CG Click Pointer Isolation Measured", passed: evidenceMatchesMeasurement, details: "Actual posted primary left-click cursor delta is \(String(format: "%.3f", measuredDelta)) pt; diagnostic evidence reports \(measuredPass ? "PASS" : "FAIL") from this run.")
+    private func test37_CGFallbackDefaultPolicy() {
+        let defaultHandling = TapRoutingPolicy.unresolvedHandling(allowCursorMovingFallback: false, enableCursorRestoreExperiment: false)
+        let explicitlyEnabled = TapRoutingPolicy.unresolvedHandling(allowCursorMovingFallback: true, enableCursorRestoreExperiment: false)
+        let passed = defaultHandling == .semanticUnresolved && explicitlyEnabled == .cursorMovingCGClick
+        record(name: "Test 37: CG Fallback Is Explicitly Cursor-Moving", passed: passed, details: "Normal mode suppresses unresolved CG clicks; explicit compatibility mode is classified CG_PRIMARY_CLICK_CURSOR_MOVING, with no pointer-isolation claim.")
     }
 
     private func test38_FingerDownSmoothingBounded() {
@@ -1238,49 +1238,94 @@ public final class RuntimeValidator {
         recognizer.reset()
     }
 
-    private func test40_TapRouting_GenericFocusableScrollAreaFallsBack() {
-        let backends = TapRoutingPolicy.backends(
-            role: "AXScrollArea",
-            supportedActions: [],
-            settableAttributes: [kAXFocusedAttribute as String]
-        )
-        let passed = backends == [.coreGraphicsPrimaryClick]
-        record(name: "Test 40: Tap Routing — Generic Focusable Scroll Area", passed: passed, details: "AXScrollArea with generic AXFocused settable capability and no actions routes directly to CG_PRIMARY_CLICK; focus cannot consume the tap.")
+    private func test40_TapResolver_GroupButton() {
+        let nodes = [
+            testAXNode(0, "AXGroup", frame: CGRect(x: 0, y: 0, width: 100, height: 100), children: [1]),
+            testAXNode(1, "AXButton", actions: [kAXPressAction as String], frame: CGRect(x: 20, y: 20, width: 40, height: 30))
+        ]
+        let result = AXActionableHitResolver.resolve(rootID: 0, nodes: Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) }), point: CGPoint(x: 30, y: 30))
+        let backends = TapRoutingPolicy.backends(role: "AXButton", supportedActions: [kAXPressAction as String], settableAttributes: [])
+        let passed = result?.nodeID == 1 && result?.depth == 1 && backends.first == .press
+        record(name: "Test 40: Actionable Resolver — Group to Button", passed: passed, details: "AXGroup resolves its containing descendant AXButton at depth 1, then selects AX_PRESS.")
     }
 
-    private func test41_TapRouting_FailedFocusFallsThrough() {
-        let backends = TapRoutingPolicy.backends(
-            role: "AXTextField",
-            supportedActions: [],
-            settableAttributes: [kAXFocusedAttribute as String]
-        )
-        let focusSucceeded = TapRoutingPolicy.succeeded(.focusReadback(isFocused: false))
-        let passed = backends == [.focus, .coreGraphicsPrimaryClick] && !focusSucceeded && backends.last == .coreGraphicsPrimaryClick
-        record(name: "Test 41: Tap Routing — Failed Focus Falls Through", passed: passed, details: "Eligible text field whose AXFocused readback remains false classifies focus as unsuccessful and advances to CG_PRIMARY_CLICK; no TAP_FOCUS_SUCCESS is emitted.")
+    private func test41_TapResolver_GroupLink() {
+        let nodes = [
+            testAXNode(0, "AXGroup", frame: CGRect(x: 0, y: 0, width: 100, height: 100), children: [1]),
+            testAXNode(1, "AXLink", actions: [kAXPressAction as String], frame: CGRect(x: 10, y: 10, width: 50, height: 20))
+        ]
+        let result = AXActionableHitResolver.resolve(rootID: 0, nodes: Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) }), point: CGPoint(x: 20, y: 15))
+        let passed = result?.nodeID == 1 && TapRoutingPolicy.backends(role: "AXLink", supportedActions: [kAXPressAction as String], settableAttributes: []).first == .press
+        record(name: "Test 41: Actionable Resolver — Group to Link", passed: passed, details: "AXGroup resolves the point-containing AXLink and routes it through AX_PRESS.")
     }
 
-    private func test42_TapRouting_TextFieldFocusConsumesTap() {
-        let backends = TapRoutingPolicy.backends(
-            role: "AXTextField",
-            supportedActions: [],
-            settableAttributes: [kAXFocusedAttribute as String]
-        )
+    private func test42_TapResolver_ShowMenuNotPrimary() {
+        let node = testAXNode(0, "AXGroup", actions: [kAXShowMenuAction as String], frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+        let nodes = [0: node]
+        let resolved = AXActionableHitResolver.resolve(rootID: 0, nodes: nodes, point: CGPoint(x: 50, y: 50))
+        let primary = TapRoutingPolicy.isPrimaryActionable(role: node.role, supportedActions: node.supportedActions, settableAttributes: node.settableAttributes)
+        let passed = resolved == nil && !primary
+        record(name: "Test 42: Actionable Resolver — ShowMenu Is Not Primary", passed: passed, details: "An AXGroup exposing only AXShowMenu is not an actionable primary tap target and is left unresolved.")
+    }
+
+    private func test43_TapResolver_ScrollAreaChild() {
+        let nodes = [
+            testAXNode(0, "AXScrollArea", frame: CGRect(x: 0, y: 0, width: 200, height: 200), children: [1]),
+            testAXNode(1, "AXButton", actions: [kAXPressAction as String], frame: CGRect(x: 80, y: 80, width: 40, height: 25))
+        ]
+        let result = AXActionableHitResolver.resolve(rootID: 0, nodes: Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) }), point: CGPoint(x: 90, y: 90))
+        let passed = result?.nodeID == 1 && result?.nodesVisited == 2
+        record(name: "Test 43: Actionable Resolver — Scroll Area Child", passed: passed, details: "AXScrollArea resolves a point-containing actionable descendant within the bounded local subtree.")
+    }
+
+    private func test44_TapResolver_DeepestOverlappingAction() {
+        let nodes = [
+            testAXNode(0, "AXGroup", frame: CGRect(x: 0, y: 0, width: 100, height: 100), children: [1]),
+            testAXNode(1, "AXButton", actions: [kAXPressAction as String], frame: CGRect(x: 0, y: 0, width: 100, height: 100), children: [2]),
+            testAXNode(2, "AXButton", actions: [kAXPressAction as String], frame: CGRect(x: 25, y: 25, width: 30, height: 30))
+        ]
+        let result = AXActionableHitResolver.resolve(rootID: 0, nodes: Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) }), point: CGPoint(x: 30, y: 30))
+        let passed = result?.nodeID == 2 && result?.depth == 2
+        record(name: "Test 44: Actionable Resolver — Deepest Overlap Wins", passed: passed, details: "For overlapping actionable bounds, the deepest containing AX target wins deterministically.")
+    }
+
+    private func test45_TapRouting_TextAreaFocus() {
+        let backends = TapRoutingPolicy.backends(role: "AXTextArea", supportedActions: [], settableAttributes: [kAXFocusedAttribute as String])
         let focusSucceeded = TapRoutingPolicy.succeeded(.focusReadback(isFocused: true))
         let passed = backends.first == .focus && focusSucceeded
-        record(name: "Test 42: Tap Routing — Text Field Focus", passed: passed, details: "AXTextField with AXFocused settable capability keeps semantic focus as the first backend; successful focus consumes the tap without a CG click.")
+        record(name: "Test 45: Tap Routing — Text Area Focus", passed: passed, details: "AXTextArea with settable AXFocused remains an eligible semantic focus target.")
     }
 
-    private func test43_TapRouting_ButtonPressPrecedesFocus() {
-        let backends = TapRoutingPolicy.backends(
-            role: "AXButton",
-            supportedActions: [kAXPressAction as String],
-            settableAttributes: [kAXFocusedAttribute as String]
-        )
-        let pressSucceeded = TapRoutingPolicy.succeeded(.axActionSucceeded(true))
-        let passed = backends.first == .press && !backends.contains(.focus) && pressSucceeded
-        record(name: "Test 43: Tap Routing — Button AXPress", passed: passed, details: "AXButton with AXPress and generic focus settable capability routes to AX_PRESS; focus is ineligible for this role and cannot steal the tap.")
+    private func test46_TapRouting_MenuBarItemPress() {
+        let backends = TapRoutingPolicy.backends(role: "AXMenuBarItem", supportedActions: [kAXPressAction as String], settableAttributes: [])
+        let passed = backends.first == .press
+        record(name: "Test 46: Tap Routing — Menu Bar Item Press", passed: passed, details: "AXMenuBarItem with AXPress continues to use the primary semantic press backend.")
     }
-    
+
+    private func test47_TapRouting_FailedPressFallsThrough() {
+        let backends = TapRoutingPolicy.backends(role: "AXButton", supportedActions: [kAXPressAction as String], settableAttributes: [])
+        let pressSucceeded = TapRoutingPolicy.succeeded(.axPressSucceeded(false))
+        let passed = !pressSucceeded && backends.first == .press && backends.dropFirst().first == .cursorMovingCGClick
+        record(name: "Test 47: Tap Routing — Failed Press Falls Through", passed: passed, details: "A failed AXPress is unsuccessful; routing advances to the explicit cursor-moving compatibility backend, which normal mode suppresses.")
+    }
+
+    private func test48_TapRouting_UnresolvedSuppressesCursorMovingFallback() {
+        let handling = TapRoutingPolicy.unresolvedHandling(allowCursorMovingFallback: false, enableCursorRestoreExperiment: false)
+        let passed = handling == .semanticUnresolved
+        record(name: "Test 48: Tap Routing — Unresolved Click Suppressed", passed: passed, details: "Default normal-tap handling reports SEMANTIC_UNRESOLVED and suppresses any fallback that would move the cursor.")
+    }
+
+    private func test49_TapRouting_CursorRestoreExperimentClassification() {
+        let handling = TapRoutingPolicy.unresolvedHandling(allowCursorMovingFallback: false, enableCursorRestoreExperiment: true)
+        let classification = TapExecutionClassification.cursorRestoreExperiment
+        let passed = handling == .cursorRestoreExperiment && classification.rawValue == "CG_CURSOR_RESTORE_EXPERIMENT"
+        record(name: "Test 49: Tap Routing — Cursor Restore Is Experimental", passed: passed, details: "The opt-in cursor restore mode has its own CG_CURSOR_RESTORE_EXPERIMENT classification and is distinct from native pointer isolation.")
+    }
+
+    private func testAXNode(_ id: Int, _ role: String, actions: Set<String> = [], attributes: Set<String> = [], frame: CGRect?, children: [Int] = []) -> ActionableAXNode {
+        ActionableAXNode(id: id, role: role, supportedActions: actions, settableAttributes: attributes, frame: frame, children: children)
+    }
+
     private func record(name: String, passed: Bool, details: String) {
         results.append(RuntimeVerificationReport.TestResult(name: name, passed: passed, details: details))
     }

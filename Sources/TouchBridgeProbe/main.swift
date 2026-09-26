@@ -18,7 +18,7 @@ func printHelp() {
       --inspect-only      Enumerate HID and Display interfaces, print full technical metadata, then exit.
       --test-timestamps   Empirically validate real HID frame timestamps across gestures (P1.5 requirement 1).
       --test-arbitration  Launch P3-03 Interaction Router & Gesture Arbitration Testbed Window.
-      --test-runtime      Run automated 29-test runtime and gesture arbitration validation suite.
+      --test-runtime      Run automated runtime, gesture arbitration, and tap routing validation suite.
       --request-accessibility  Request macOS Accessibility permission for TouchBridgeProbe, then exit.
       --live-diagnostics  Run real-time P3-03R live diagnostic telemetry stream (contacts, speed, backend, seize).
       --verify-arbitration Run live physical tap-vs-pan arbitration validation across all scenarios.

@@ -9,12 +9,14 @@ public enum SafetyInvariants {
     ================================================================================
                         TouchBridge Core Safety Invariants
     ================================================================================
-    1. Zero Cursor Warping:
-       Never call CGWarpMouseCursorPosition or mutate system cursor position.
-    
-    2. Zero Mouse Fallback:
-       Never synthesize or inject mouse CGEvents (leftMouseDown, mouseMoved, etc.).
-       Fallback to mouse synthesis is strictly forbidden.
+    1. Direct-Touch Cursor Safety:
+       The default product path does not warp the cursor and suppresses unresolved
+       taps instead of injecting a cursor-moving mouse fallback. The explicit
+       CG_CURSOR_RESTORE_EXPERIMENT mode is separate, opt-in, and not pointer isolation.
+
+    2. Cursor-Moving Compatibility Fallback:
+       CG primary click is available only when explicitly enabled. It may move the
+       real cursor and is always reported as CG_PRIMARY_CLICK_CURSOR_MOVING.
     
     3. Zero Virtual HID:
        Never instantiate virtual HID devices or drivers.
@@ -23,9 +25,10 @@ public enum SafetyInvariants {
        Exclusively interact via public macOS AppKit, CoreGraphics, ApplicationServices
        (Accessibility), and IOKit APIs.
     
-    5. Strict Pointer Isolation:
-       The physical system pointer remains completely isolated and stationary during
-       touch interactions on the external display.
+    5. Pointer Isolation Scope:
+       AX semantic actions and direct scrolling are measured for cursor movement.
+       Cursor-moving CG compatibility clicks and cursor-restore experiments are
+       excluded from any pointer-isolation claim.
     ================================================================================
     """
     

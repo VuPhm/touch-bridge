@@ -134,16 +134,12 @@ public final class LiveDiagnosticsRunner: NSObject, TouchBridgeRuntimeDelegate {
         let backend: String
         if session.state == .directPan || session.state == .momentum {
             backend = "CG_SCROLL_WHEEL"
-        } else if let ctx = session.context {
-            if ctx.hitNode.supportedActions.contains(kAXPressAction as String) {
-                backend = "AX_PRESS"
-            } else if ctx.hitNode.isFocusSettable {
-                backend = "AX_FOCUS"
-            } else {
-                backend = "CG_PRIMARY_CLICK"
-            }
+        } else if session.context != nil {
+            // The final tap backend depends on bounded actionable descendant
+            // resolution at release, so the raw touch-down hit is not predictive.
+            backend = "TAP_AX_RESOLUTION_PENDING"
         } else {
-            backend = "CG_PRIMARY_CLICK"
+            backend = "TAP_AX_HIT_TEST_PENDING"
         }
         
         let line = String(

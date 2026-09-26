@@ -162,6 +162,7 @@ public final class InteractionSession {
     public var cursorBefore: CGPoint = .zero
     public var cursorAfter: CGPoint = .zero
     public var pointerIsolationSatisfied: Bool? = nil
+    public var cursorActionClassification: String? = nil
     public var tapActionResult: String = "None"
     public var panActionResult: String = "None"
     public var transitionDescription: String = "possibleTap"
@@ -517,7 +518,7 @@ public final class InteractionSession {
           before: (\(String(format: "%.1f", cursorBefore.x)), \(String(format: "%.1f", cursorBefore.y)))
           after: (\(String(format: "%.1f", cursorAfter.x)), \(String(format: "%.1f", cursorAfter.y)))
           delta: \(String(format: "%.2f", curDelta)) pt
-          CG click isolation result: \(pointerIsolationSatisfied.map { $0 ? "PASS" : "FAIL" } ?? "NOT MEASURED")
+          cursor action classification: \(cursorActionClassification ?? "NOT APPLICABLE")
         """
     }
 }

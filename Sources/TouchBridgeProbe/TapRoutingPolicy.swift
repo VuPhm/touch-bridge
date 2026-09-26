@@ -1,21 +1,28 @@
 import Foundation
 import ApplicationServices
 
-/// Capability and role based ordering for a physical tap. A backend is only
-/// considered to have consumed the tap after its live operation is verified.
 enum TapBackend: String, Equatable {
-    case focus = "AX_FOCUS"
-    case selection = "AX_SELECTION"
     case press = "AX_PRESS"
-    case showMenu = "AX_SHOW_MENU"
-    case pick = "AX_PICK"
-    case coreGraphicsPrimaryClick = "CG_PRIMARY_CLICK"
+    case selection = "AX_SELECTION"
+    case focus = "AX_FOCUS"
+    case cursorMovingCGClick = "CG_PRIMARY_CLICK_CURSOR_MOVING"
 }
 
 enum TapBackendOutcome {
     case focusReadback(isFocused: Bool)
     case selection(setSucceeded: Bool, isSelected: Bool)
-    case axActionSucceeded(Bool)
+    case axPressSucceeded(Bool)
+}
+
+enum UnresolvedTapHandling: String, Equatable {
+    case semanticUnresolved = "SEMANTIC_UNRESOLVED"
+    case cursorMovingCGClick = "CG_PRIMARY_CLICK_CURSOR_MOVING"
+    case cursorRestoreExperiment = "CG_CURSOR_RESTORE_EXPERIMENT"
+}
+
+enum TapExecutionClassification: String, Equatable {
+    case cursorMovingCGClick = "CG_PRIMARY_CLICK_CURSOR_MOVING"
+    case cursorRestoreExperiment = "CG_CURSOR_RESTORE_EXPERIMENT"
 }
 
 enum TapRoutingPolicy {
@@ -26,31 +33,31 @@ enum TapRoutingPolicy {
         "AXRow", "AXCell", "AXListItem", "AXOutlineRow"
     ]
 
-    static func backends(
-        role: String,
-        supportedActions: Set<String>,
-        settableAttributes: Set<String>
-    ) -> [TapBackend] {
-        var result: [TapBackend] = []
+    static func isPrimaryActionable(role: String, supportedActions: Set<String>, settableAttributes: Set<String>) -> Bool {
+        supportedActions.contains(kAXPressAction as String) ||
+            (selectionRoles.contains(role) && settableAttributes.contains(kAXSelectedAttribute as String)) ||
+            (textEntryRoles.contains(role) && settableAttributes.contains(kAXFocusedAttribute as String))
+    }
 
-        if textEntryRoles.contains(role), settableAttributes.contains(kAXFocusedAttribute as String) {
-            result.append(.focus)
+    static func backends(role: String, supportedActions: Set<String>, settableAttributes: Set<String>) -> [TapBackend] {
+        var result: [TapBackend] = []
+        if supportedActions.contains(kAXPressAction as String) {
+            result.append(.press)
         }
         if selectionRoles.contains(role), settableAttributes.contains(kAXSelectedAttribute as String) {
             result.append(.selection)
         }
-        if supportedActions.contains(kAXPressAction as String) {
-            result.append(.press)
+        if textEntryRoles.contains(role), settableAttributes.contains(kAXFocusedAttribute as String) {
+            result.append(.focus)
         }
-        if supportedActions.contains(kAXShowMenuAction as String) {
-            result.append(.showMenu)
-        }
-        if supportedActions.contains("AXPick") {
-            result.append(.pick)
-        }
-
-        result.append(.coreGraphicsPrimaryClick)
+        result.append(.cursorMovingCGClick)
         return result
+    }
+
+    static func unresolvedHandling(allowCursorMovingFallback: Bool, enableCursorRestoreExperiment: Bool) -> UnresolvedTapHandling {
+        if enableCursorRestoreExperiment { return .cursorRestoreExperiment }
+        if allowCursorMovingFallback { return .cursorMovingCGClick }
+        return .semanticUnresolved
     }
 
     static func succeeded(_ outcome: TapBackendOutcome) -> Bool {
@@ -59,7 +66,7 @@ enum TapRoutingPolicy {
             return isFocused
         case .selection(let setSucceeded, let isSelected):
             return setSucceeded && isSelected
-        case .axActionSucceeded(let succeeded):
+        case .axPressSucceeded(let succeeded):
             return succeeded
         }
     }

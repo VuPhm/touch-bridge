@@ -23,6 +23,10 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
     public var probeOnly: Bool = false
     public var activeTestCaseName: String = "TouchBridge Semantic Tap"
     public var preferContinuousCGScroll: Bool = true
+    /// Compatibility escape hatch. CG click events move the real system cursor on some hosts.
+    public var allowCursorMovingCGFallback: Bool = false
+    /// Unsafe experimental cursor restoration prototype; never enabled by the product path.
+    public var enableCGCursorRestoreExperiment: Bool = false
     
     // Kinetic momentum state (P3-03R Phase C)
     private var momentumTimer: Timer? = nil
@@ -46,6 +50,7 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didResolveTapWithSession session: InteractionSession) {
         // Absolute User Intent Gate (P3-01.1 Requirement 1 & P3-02 Section 5)
         guard userIntent == .enabled else {
+            logTapNotResolved(point: session.startGlobalPoint.cgGlobal, rawRole: session.context?.hitNode.role ?? "None")
             TouchBridgeLogger.info(
                 .semantic,
                 "Physical tap OBSERVED at (\(String(format: "%.1f, %.1f", session.startGlobalPoint.cgGlobal.x, session.startGlobalPoint.cgGlobal.y))), but semantic interaction is SUPPRESSED (UserIntent is DISABLED)."
@@ -58,6 +63,7 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
         }
         
         guard AXPermissionManager.shared.isTrusted() else {
+            logTapNotResolved(point: session.startGlobalPoint.cgGlobal, rawRole: session.context?.hitNode.role ?? "None")
             TouchBridgeLogger.warning(.semantic, "Tap rejected: Accessibility permission UNAVAILABLE.")
             session.tapActionResult = "Rejected (Accessibility Permission Missing)"
             TouchBridgeLogger.info(.semantic, "TAP ROUTE: ACCESSIBILITY_UNAVAILABLE -> REJECTED")
@@ -67,7 +73,9 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
         }
         
         if probeOnly {
+            logTapNotResolved(point: session.startGlobalPoint.cgGlobal, rawRole: session.context?.hitNode.role ?? "None")
             probeElement(at: session.startGlobalPoint.cgGlobal)
+            TouchBridgeLogger.info(.semantic, "TAP ROUTE: PROBE_ONLY -> INSPECTED_NO_ACTION")
             return
         }
         
@@ -279,64 +287,37 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
             TouchBridgeLogger.error(.semantic, "CRITICAL ARBITRATION VIOLATION: Tap executed when session state was \(session.state)!")
         }
 
-        guard let context = session.context else {
-            TouchBridgeLogger.info(.semantic, "Hit-test found no AX element at tap position. Engaging CG Primary Click fallback.")
-            executeCoreGraphicsPrimaryClick(point: session.startGlobalPoint.cgGlobal, session: session, route: ["AX_HIT_TEST_NONE"])
+        let point = session.startGlobalPoint.cgGlobal
+        let rawRole = session.context?.hitNode.role ?? "None"
+        guard let rawElement = session.context?.hitElement else {
+            logTapResolution(point: point, rawRole: rawRole, resolvedRole: nil, depth: nil, nodes: 0)
+            completeUnresolvedTap(session: session, role: rawRole, route: ["AX_HIT_TEST_NONE"])
             return
         }
 
-        let elem = context.hitElement
-        let hitNode = context.hitNode
+        let resolution = AXActionableHitResolver.resolve(initialElement: rawElement, point: point)
+        logTapResolution(
+            point: point,
+            rawRole: rawRole,
+            resolvedRole: resolution.node?.role,
+            depth: resolution.depth,
+            nodes: resolution.nodesVisited
+        )
+        guard let element = resolution.element, let node = resolution.node else {
+            completeUnresolvedTap(session: session, role: rawRole, route: [])
+            return
+        }
+
         let backends = TapRoutingPolicy.backends(
-            role: hitNode.role,
-            supportedActions: Set(hitNode.supportedActions),
-            settableAttributes: Set(hitNode.settableAttributes)
+            role: node.role,
+            supportedActions: Set(node.supportedActions),
+            settableAttributes: Set(node.settableAttributes)
         )
         var route: [String] = []
+        let context = session.context!
 
         for backend in backends {
             switch backend {
-            case .focus:
-                route.append("AX_FOCUS")
-                let cursorBefore = SafetyInvariants.currentCursorPosition()
-                let focusRec = SemanticFocusController.shared.attemptFocus(element: elem)
-                let cursorAfter = SafetyInvariants.currentCursorPosition()
-                let (satisfied, _) = SafetyInvariants.assertPointerIsolation(cursorBefore: cursorBefore, cursorAfter: cursorAfter, context: "Capability: Focus [\(hitNode.role)]")
-                guard TapRoutingPolicy.succeeded(.focusReadback(isFocused: focusRec.isFocusedAfter)) else {
-                    route[route.count - 1] = "AX_FOCUS_REJECTED"
-                    TouchBridgeLogger.warning(.semantic, "AX focus attempt rejected for [\(hitNode.role)]: readback=UNFOCUSED [NO], classification=\(focusRec.classification). Continuing tap routing.")
-                    continue
-                }
-                session.cursorBefore = cursorBefore
-                session.cursorAfter = cursorAfter
-                session.tapActionResult = "AXFocused read back true [\(hitNode.role)] (\(focusRec.classification))"
-                TouchBridgeLogger.info(.semantic, "Capability Authorized [TAP_FOCUS_SUCCESS] -> [\(context.applicationName) \(hitNode.role)]: readback=FOCUSED [YES]")
-                delegate?.semanticRouter(self, didUpdateFeedback: "Focused [\(hitNode.role)]: \(focusRec.classification)", invariantPassed: satisfied)
-                completeTapRoute(route, role: hitNode.role, result: "SUCCESS", session: session)
-                return
-
-            case .selection:
-                route.append("AX_SELECTION")
-                let cursorBefore = SafetyInvariants.currentCursorPosition()
-                let setError = AXUIElementSetAttributeValue(elem, kAXSelectedAttribute as CFString, true as CFTypeRef)
-                var selectedRef: AnyObject?
-                let readError = AXUIElementCopyAttributeValue(elem, kAXSelectedAttribute as CFString, &selectedRef)
-                let isSelected = readError == .success && (selectedRef as? Bool == true)
-                let cursorAfter = SafetyInvariants.currentCursorPosition()
-                let (satisfied, _) = SafetyInvariants.assertPointerIsolation(cursorBefore: cursorBefore, cursorAfter: cursorAfter, context: "Capability: Selection [\(hitNode.role)]")
-                guard TapRoutingPolicy.succeeded(.selection(setSucceeded: setError == .success, isSelected: isSelected)) else {
-                    route[route.count - 1] = "AX_SELECTION_REJECTED"
-                    TouchBridgeLogger.warning(.semantic, "AX selection rejected for [\(hitNode.role)]: set=\(setError.rawValue), readback=\(isSelected ? "SELECTED" : "NOT_SELECTED") (error \(readError.rawValue)). Continuing tap routing.")
-                    continue
-                }
-                session.cursorBefore = cursorBefore
-                session.cursorAfter = cursorAfter
-                session.tapActionResult = "AXSelected read back true on \(hitNode.role)"
-                TouchBridgeLogger.info(.semantic, "Capability Authorized [TAP_SELECTION_SUCCESS] -> [\(context.applicationName) \(hitNode.role)]: setter and readback succeeded.")
-                delegate?.semanticRouter(self, didUpdateFeedback: "Selected [\(hitNode.role)]", invariantPassed: satisfied)
-                completeTapRoute(route, role: hitNode.role, result: "SUCCESS", session: session)
-                return
-
             case .press:
                 route.append("AX_PRESS")
                 let duration = max(0.0, Date().timeIntervalSince(session.startTimeDate))
@@ -345,63 +326,113 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
                     rawUpPoint: session.startRawPoint,
                     downSensorPoint: session.startSensorPoint,
                     calibratedLocalCG: session.startLocalPoint.cgPoint,
-                    calibratedGlobalCG: session.startGlobalPoint.cgGlobal,
+                    calibratedGlobalCG: point,
                     durationSec: duration,
                     movementPt: session.maxMovementPt,
                     timestampMach: session.startTimeMach,
                     timestampDate: session.startTimeDate
                 )
-                let cursorBefore = SafetyInvariants.currentCursorPosition()
-                let snap = hitNode.toSnapshot(pid: context.pid, appName: context.applicationName)
-                let record = AXSemanticEngine.shared.performSemanticTap(tap: tapEvent, preResolvedElement: elem, preResolvedSnapshot: snap, testCase: activeTestCaseName)
-                let cursorAfter = SafetyInvariants.currentCursorPosition()
-                session.cursorBefore = cursorBefore
-                session.cursorAfter = cursorAfter
-                session.tapActionResult = record.visibleResult
-                SafetyInvariants.assertPointerIsolation(
-                    cursorBefore: CGPoint(x: record.cursor.beforeX, y: record.cursor.beforeY),
-                    cursorAfter: CGPoint(x: record.cursor.afterX, y: record.cursor.afterY),
-                    context: "Capability: AXPress [\(context.applicationName) \(hitNode.role)]"
+                let snap = node.toSnapshot(pid: context.pid, appName: context.applicationName)
+                let record = AXSemanticEngine.shared.performSemanticTap(
+                    tap: tapEvent,
+                    preResolvedElement: element,
+                    preResolvedSnapshot: snap,
+                    testCase: activeTestCaseName
                 )
+                session.tapActionResult = record.visibleResult
                 delegate?.semanticRouter(self, didExecuteRecord: record)
                 let pressSucceeded = record.classification == .semanticPressSuccess &&
                     record.semanticAction.executed &&
                     record.semanticAction.axErrorCode == AXError.success.rawValue
-                guard TapRoutingPolicy.succeeded(.axActionSucceeded(pressSucceeded)) else {
+                guard TapRoutingPolicy.succeeded(.axPressSucceeded(pressSucceeded)) else {
                     route[route.count - 1] = "AX_PRESS_REJECTED"
-                    TouchBridgeLogger.warning(.semantic, "AXPress failed for [\(hitNode.role)]: \(record.visibleResult). Continuing tap routing.")
+                    TouchBridgeLogger.warning(.semantic, "AXPress failed for [\(node.role)]: \(record.visibleResult). Continuing tap routing.")
                     continue
                 }
-                TouchBridgeLogger.info(.semantic, "Capability Authorized [TAP_PRESS_SUCCESS] -> [\(context.applicationName) \(hitNode.role)]: \(record.visibleResult)")
+                TouchBridgeLogger.info(.semantic, "Capability Authorized [TAP_PRESS_SUCCESS] -> [\(context.applicationName) \(node.role)]: \(record.visibleResult)")
                 delegate?.semanticRouter(self, didUpdateFeedback: record.visibleResult, invariantPassed: record.cursor.invariantSatisfied)
-                completeTapRoute(route, role: hitNode.role, result: "SUCCESS", session: session)
+                completeTapRoute(route, role: node.role, result: "SUCCESS", session: session)
                 return
 
-            case .showMenu, .pick:
-                let actionName = backend == .showMenu ? (kAXShowMenuAction as String) : "AXPick"
-                let label = backend == .showMenu ? "AX_SHOW_MENU" : "AX_PICK"
-                route.append(label)
+            case .selection:
+                route.append("AX_SELECTION")
                 let cursorBefore = SafetyInvariants.currentCursorPosition()
-                let actionError = AXUIElementPerformAction(elem, actionName as CFString)
+                let setError = AXUIElementSetAttributeValue(element, kAXSelectedAttribute as CFString, true as CFTypeRef)
+                var selectedRef: AnyObject?
+                let readError = AXUIElementCopyAttributeValue(element, kAXSelectedAttribute as CFString, &selectedRef)
+                let isSelected = readError == .success && (selectedRef as? Bool == true)
                 let cursorAfter = SafetyInvariants.currentCursorPosition()
-                let (satisfied, _) = SafetyInvariants.assertPointerIsolation(cursorBefore: cursorBefore, cursorAfter: cursorAfter, context: "Capability: \(actionName)")
-                guard TapRoutingPolicy.succeeded(.axActionSucceeded(actionError == .success)) else {
-                    route[route.count - 1] = "\(label)_REJECTED"
-                    TouchBridgeLogger.warning(.semantic, "\(actionName) failed for [\(hitNode.role)]: AX error \(actionError.rawValue). Continuing tap routing.")
+                let (pointerUnchanged, _) = SafetyInvariants.assertPointerIsolation(cursorBefore: cursorBefore, cursorAfter: cursorAfter, context: "Capability: Selection [\(node.role)]")
+                guard TapRoutingPolicy.succeeded(.selection(setSucceeded: setError == .success, isSelected: isSelected)) else {
+                    route[route.count - 1] = "AX_SELECTION_REJECTED"
+                    TouchBridgeLogger.warning(.semantic, "AX selection rejected for [\(node.role)]: set=\(setError.rawValue), readback=\(isSelected ? "SELECTED" : "NOT_SELECTED") (error \(readError.rawValue)). Continuing tap routing.")
                     continue
                 }
                 session.cursorBefore = cursorBefore
                 session.cursorAfter = cursorAfter
-                session.tapActionResult = "\(actionName) succeeded on \(hitNode.role)"
-                TouchBridgeLogger.info(.semantic, "Capability Authorized [\(actionName)] -> [\(context.applicationName) \(hitNode.role)]: AX call succeeded.")
-                delegate?.semanticRouter(self, didUpdateFeedback: "\(actionName) [\(hitNode.role)]", invariantPassed: satisfied)
-                completeTapRoute(route, role: hitNode.role, result: "SUCCESS", session: session)
+                session.tapActionResult = "AXSelected read back true on \(node.role)"
+                TouchBridgeLogger.info(.semantic, "Capability Authorized [TAP_SELECTION_SUCCESS] -> [\(context.applicationName) \(node.role)]: setter and readback succeeded.")
+                delegate?.semanticRouter(self, didUpdateFeedback: "Selected [\(node.role)]", invariantPassed: pointerUnchanged)
+                completeTapRoute(route, role: node.role, result: "SUCCESS", session: session)
                 return
 
-            case .coreGraphicsPrimaryClick:
-                executeCoreGraphicsPrimaryClick(point: session.startGlobalPoint.cgGlobal, session: session, route: route)
+            case .focus:
+                route.append("AX_FOCUS")
+                let cursorBefore = SafetyInvariants.currentCursorPosition()
+                let focusRec = SemanticFocusController.shared.attemptFocus(element: element)
+                let cursorAfter = SafetyInvariants.currentCursorPosition()
+                let (pointerUnchanged, _) = SafetyInvariants.assertPointerIsolation(cursorBefore: cursorBefore, cursorAfter: cursorAfter, context: "Capability: Focus [\(node.role)]")
+                guard TapRoutingPolicy.succeeded(.focusReadback(isFocused: focusRec.isFocusedAfter)) else {
+                    route[route.count - 1] = "AX_FOCUS_REJECTED"
+                    TouchBridgeLogger.warning(.semantic, "AX focus rejected for [\(node.role)]: readback=UNFOCUSED [NO]. Continuing tap routing.")
+                    continue
+                }
+                session.cursorBefore = cursorBefore
+                session.cursorAfter = cursorAfter
+                session.tapActionResult = "AXFocused read back true [\(node.role)]"
+                TouchBridgeLogger.info(.semantic, "Capability Authorized [TAP_FOCUS_SUCCESS] -> [\(context.applicationName) \(node.role)]: readback=FOCUSED [YES]")
+                delegate?.semanticRouter(self, didUpdateFeedback: "Focused [\(node.role)]", invariantPassed: pointerUnchanged)
+                completeTapRoute(route, role: node.role, result: "SUCCESS", session: session)
+                return
+
+            case .cursorMovingCGClick:
+                completeUnresolvedTap(session: session, role: node.role, route: route)
                 return
             }
+        }
+    }
+
+    private func logTapResolution(point: CGPoint, rawRole: String, resolvedRole: String?, depth: Int?, nodes: Int) {
+        let raw = diagnosticRole(rawRole)
+        if let resolvedRole, let depth {
+            TouchBridgeLogger.info(.semantic, "TAP RESOLVE: point=(\(String(format: "%.1f, %.1f", point.x, point.y))) raw=\(raw) -> resolved=\(diagnosticRole(resolvedRole)) depth=\(depth) nodes=\(nodes)")
+        } else {
+            TouchBridgeLogger.info(.semantic, "TAP RESOLVE: point=(\(String(format: "%.1f, %.1f", point.x, point.y))) raw=\(raw) -> no actionable descendant nodes=\(nodes)")
+        }
+    }
+
+    private func logTapNotResolved(point: CGPoint, rawRole: String) {
+        TouchBridgeLogger.info(.semantic, "TAP RESOLVE: point=(\(String(format: "%.1f, %.1f", point.x, point.y))) raw=\(diagnosticRole(rawRole)) -> resolution not run nodes=0")
+    }
+
+    private func completeUnresolvedTap(session: InteractionSession, role: String, route: [String]) {
+        let prefix = ([diagnosticRole(role)] + route).filter { !$0.isEmpty }
+        switch TapRoutingPolicy.unresolvedHandling(
+            allowCursorMovingFallback: allowCursorMovingCGFallback,
+            enableCursorRestoreExperiment: enableCGCursorRestoreExperiment
+        ) {
+        case .cursorRestoreExperiment:
+            executeCGCursorRestoreExperiment(point: session.startGlobalPoint.cgGlobal, session: session, route: prefix)
+        case .cursorMovingCGClick:
+            executeCursorMovingCGClick(point: session.startGlobalPoint.cgGlobal, session: session, route: prefix)
+        case .semanticUnresolved:
+            session.tapActionResult = "Semantic unresolved; cursor-moving CG fallback suppressed"
+            session.pointerIsolationSatisfied = nil
+            session.cursorActionClassification = "CG_CURSOR_MOVING_FALLBACK_SUPPRESSED"
+            let routeText = (prefix + ["SEMANTIC_UNRESOLVED", "CG_CURSOR_MOVING_FALLBACK_SUPPRESSED"]).joined(separator: " -> ")
+            TouchBridgeLogger.info(.semantic, "TAP ROUTE: \(routeText)")
+            delegate?.semanticRouter(self, didUpdateFeedback: "Tap unresolved (cursor-moving fallback suppressed)", invariantPassed: true)
+            delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
         }
     }
 
@@ -421,42 +452,89 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
         return result
     }
 
-    func executeCoreGraphicsPrimaryClick(point: CGPoint, session: InteractionSession, route initialRoute: [String] = []) {
-        let cursorBefore = SafetyInvariants.currentCursorPosition()
-
+    private func executeCursorMovingCGClick(point: CGPoint, session: InteractionSession, route: [String]) {
+        session.cursorActionClassification = TapExecutionClassification.cursorMovingCGClick.rawValue
+        let before = SafetyInvariants.currentCursorPosition()
         guard let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: point, mouseButton: .left),
               let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: .left) else {
-            TouchBridgeLogger.error(.semantic, "Failed to synthesize CGEvent left click at (\(point.x), \(point.y))")
-            session.tapActionResult = "Failed to create CGEvent left click"
-            session.pointerIsolationSatisfied = false
-            delegate?.semanticRouter(self, didUpdateFeedback: "CG click event creation failed", invariantPassed: false)
-            TouchBridgeLogger.info(.semantic, "TAP ROUTE: \((initialRoute + ["CG_PRIMARY_CLICK", "FAILED"]).joined(separator: " -> "))")
+            finishCGClickFailure(session: session, route: route + [TapBackend.cursorMovingCGClick.rawValue])
+            return
+        }
+        down.post(tap: .cghidEventTap)
+        usleep(10_000)
+        up.post(tap: .cghidEventTap)
+        let after = SafetyInvariants.currentCursorPosition()
+        let delta = hypot(after.x - before.x, after.y - before.y)
+        session.cursorBefore = before
+        session.cursorAfter = after
+        session.pointerIsolationSatisfied = delta <= 0.001
+        session.tapActionResult = "\(TapExecutionClassification.cursorMovingCGClick.rawValue) dispatched (cursor delta \(String(format: "%.3f", delta)) pt)"
+        let routeText = (route + [TapExecutionClassification.cursorMovingCGClick.rawValue, "DISPATCHED", "CURSOR_DELTA=\(String(format: "%.3f", delta))pt"]).joined(separator: " -> ")
+        TouchBridgeLogger.warning(.semantic, "TAP ROUTE: \(routeText)")
+        delegate?.semanticRouter(self, didUpdateFeedback: "Cursor-moving CG click (delta \(String(format: "%.3f", delta)) pt)", invariantPassed: delta <= 0.001)
+        delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
+    }
+
+    /// Experimental only. Cursor restoration is attempted only when the post-click
+    /// cursor remains at the injected click location. This cannot distinguish an
+    /// external mouse landing at that exact point or eliminate the check/warp race.
+    private func executeCGCursorRestoreExperiment(point: CGPoint, session: InteractionSession, route: [String]) {
+        session.cursorActionClassification = TapExecutionClassification.cursorRestoreExperiment.rawValue
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let before = SafetyInvariants.currentCursorPosition()
+        let displayID = CGMainDisplayID()
+        let hideError = CGDisplayHideCursor(displayID)
+        guard hideError == .success else {
+            session.tapActionResult = "CG_CURSOR_RESTORE_EXPERIMENT aborted: cursor hide failed (\(hideError.rawValue))"
+            session.pointerIsolationSatisfied = nil
+            TouchBridgeLogger.warning(.semantic, "TAP ROUTE: \((route + [TapExecutionClassification.cursorRestoreExperiment.rawValue, "ABORTED_CURSOR_HIDE_FAILED"]).joined(separator: " -> "))")
+            delegate?.semanticRouter(self, didUpdateFeedback: session.tapActionResult, invariantPassed: false)
             delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
             return
         }
-
+        guard let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: point, mouseButton: .left),
+              let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: .left) else {
+            CGDisplayShowCursor(displayID)
+            finishCGClickFailure(session: session, route: route + [TapExecutionClassification.cursorRestoreExperiment.rawValue])
+            return
+        }
         down.post(tap: .cghidEventTap)
         usleep(10_000)
         up.post(tap: .cghidEventTap)
 
-        let cursorAfter = SafetyInvariants.currentCursorPosition()
-        let (isolationSatisfied, cursorDelta) = SafetyInvariants.assertPointerIsolation(cursorBefore: cursorBefore, cursorAfter: cursorAfter, context: "CoreGraphics Primary Click")
-        session.cursorBefore = cursorBefore
-        session.cursorAfter = cursorAfter
-        session.pointerIsolationSatisfied = isolationSatisfied
-        let role = session.context?.hitNode.role ?? "None"
-        session.tapActionResult = "CGPrimaryClick Fallback at (\(String(format: "%.1f, %.1f", point.x, point.y))) [\(role)]"
-
-        TouchBridgeLogger.info(.semantic, "Capability Authorized [TAP_CG_FALLBACK] -> Dispatched CG Primary Left Click at (\(String(format: "%.1f, %.1f", point.x, point.y))) [Target: \(role)]")
-        TouchBridgeLogger.info(.semantic, "CG primary click pointer-isolation evidence: \(isolationSatisfied ? "PASS" : "FAIL") (cursor delta \(String(format: "%.3f", cursorDelta)) pt).")
-        let routeText = (initialRoute + ["CG_PRIMARY_CLICK", "SUCCESS"]).joined(separator: " -> ")
-        TouchBridgeLogger.info(.semantic, "TAP ROUTE: \(contextRole(session)) -> \(routeText) | POINTER_ISOLATION=\(isolationSatisfied ? "PASS" : "FAIL") (delta \(String(format: "%.3f", cursorDelta)) pt)")
-        delegate?.semanticRouter(self, didUpdateFeedback: "Tap -> CG Click (\(String(format: "%.0f, %.0f", point.x, point.y)))", invariantPassed: isolationSatisfied)
+        // Conservative location check: movement away from the injected target
+        // suppresses restoration. This cannot identify external motion landing
+        // exactly at the target or close the race between this check and the warp.
+        let afterClick = SafetyInvariants.currentCursorPosition()
+        let appearsUncontested = hypot(afterClick.x - point.x, afterClick.y - point.y) <= 1.0
+        let restoreResult: String
+        if appearsUncontested {
+            restoreResult = CGWarpMouseCursorPosition(before) == .success ? "RESTORED_HEURISTIC" : "RESTORE_FAILED"
+        } else {
+            restoreResult = "SKIPPED_EXTERNAL_MOTION"
+        }
+        CGDisplayShowCursor(displayID)
+        let after = SafetyInvariants.currentCursorPosition()
+        let delta = hypot(after.x - before.x, after.y - before.y)
+        let elapsedMs = (ProcessInfo.processInfo.systemUptime - startedAt) * 1000
+        session.cursorBefore = before
+        session.cursorAfter = after
+        session.pointerIsolationSatisfied = nil
+        session.tapActionResult = "\(TapExecutionClassification.cursorRestoreExperiment.rawValue): \(restoreResult), final delta \(String(format: "%.3f", delta)) pt"
+        let routeText = (route + [TapExecutionClassification.cursorRestoreExperiment.rawValue, restoreResult, "FINAL_CURSOR_DELTA=\(String(format: "%.3f", delta))pt", "DURATION=\(String(format: "%.1f", elapsedMs))ms"]).joined(separator: " -> ")
+        let routeTextWithObservations = routeText + " -> VISIBLE_FLICKER=MANUAL_CHECK -> EXTERNAL_MOUSE=LOCATION_HEURISTIC"
+        TouchBridgeLogger.warning(.semantic, "TAP ROUTE: \(routeTextWithObservations)")
+        TouchBridgeLogger.warning(.semantic, "Cursor restore experiment is not pointer isolation. Position sampling cannot detect external movement landing at the touch point or prevent movement between the check and warp.")
+        delegate?.semanticRouter(self, didUpdateFeedback: session.tapActionResult, invariantPassed: false)
         delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
     }
 
-    private func contextRole(_ session: InteractionSession) -> String {
-        diagnosticRole(session.context?.hitNode.role ?? "None")
+    private func finishCGClickFailure(session: InteractionSession, route: [String]) {
+        session.tapActionResult = "CG primary click event creation failed"
+        session.pointerIsolationSatisfied = nil
+        TouchBridgeLogger.info(.semantic, "TAP ROUTE: \((route + ["EVENT_CREATION_FAILED"]).joined(separator: " -> "))")
+        delegate?.semanticRouter(self, didUpdateFeedback: "CG click event creation failed", invariantPassed: false)
+        delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
     }
 
     private func postScrollWheelEvent(location: CGPoint, deltaY: Double, phase: Int64, momentumPhase: Int64) {

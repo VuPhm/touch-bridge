@@ -117,14 +117,15 @@ Taps are qualified purely by physical invariants:
 - Movement remained within touch slop ($|\Delta| \le 18.0\text{ pt}$);
 - Interaction was not promoted to pan.
 
-When `tapExecuted` is reached, the backend is selected in strict priority order:
-1. **Accessibility Focus (`AXFocused`)**: Dedicated text fields (`AXTextField`, `AXTextArea`, `AXSearchField`) receive direct focus via `SemanticFocusController`.
-2. **Accessibility Selection (`AXSelected`)**: Table rows, outline views, and list items set `kAXSelectedAttribute = true`.
-3. **Accessibility Press (`AXPress`)**: Actionable buttons and controls execute `kAXPressAction` without cursor warping.
-4. **Context Menu / Action (`kAXShowMenuAction`, `AXPick`)**: Menu buttons and pickers.
-5. **CoreGraphics Primary Click Fallback (`.leftMouseDown`/`.leftMouseUp`)**: When AX hit-testing finds no element or an element without actionable semantic actions (e.g. Safari web content, canvas, custom controls), a synthetic left-click is dispatched at the exact touch coordinate.
-   - **Pointer Isolation**: Dispatched via `CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: point, mouseButton: .left)`. Verified empirically to preserve the user's hardware mouse pointer position (delta = `0.00 pt`).
-   - **Right-Click Prohibition**: Only primary left-click is ever synthesized; random right-clicks are impossible.
+At `tapExecuted`, TouchBridge resolves an actionable descendant from the raw AX hit using a bounded local walk (maximum depth 6, maximum 64 nodes, 30 ms traversal budget). It prefers the deepest actionable node whose AX frame contains the physical point; smaller frame area and traversal order break ties.
+
+Primary semantic routing tries `AXPress`, selection for selectable row/item roles, then focus for editable text roles. Every backend must succeed before it consumes the tap. `AXShowMenu` and `AXPick` are not normal tap actions.
+
+An unresolved tap is reported as `SEMANTIC_UNRESOLVED`; the normal product path suppresses CoreGraphics fallback because CG primary clicks can move the real system cursor on some hosts. An explicit compatibility flag can enable `CG_PRIMARY_CLICK_CURSOR_MOVING`. It measures and reports cursor displacement and is not pointer isolated.
+
+`CG_CURSOR_RESTORE_EXPERIMENT` is a separate, disabled-by-default experiment. It hides the cursor, dispatches a CG click, and heuristically restores the starting position only when the cursor remains at the injected target. Position sampling cannot detect external motion that lands at that same target or prevent the race before restoration. Its visible flicker requires manual observation; this experiment makes no pointer-isolation claim.
+
+Tap diagnostics print the physical point, raw and resolved AX roles, traversal depth and node count, then the backend result or explicit fallback suppression. Only a primary left click exists in compatibility mode; the normal tap path never synthesizes a right click.
 
 ---
 
