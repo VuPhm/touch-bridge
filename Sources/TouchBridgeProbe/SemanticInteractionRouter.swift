@@ -22,8 +22,18 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
     public var userIntent: UserIntent = .disabled
     public var probeOnly: Bool = false
     public var activeTestCaseName: String = "TouchBridge Semantic Tap"
+    public var preferContinuousCGScroll: Bool = true
+    
+    // Kinetic momentum state (P3-03R Phase C)
+    private var momentumTimer: Timer? = nil
+    private var activeMomentumSession: InteractionSession? = nil
+    private var currentMomentumVelocity: CGVector = .zero
     
     public init() {}
+    
+    deinit {
+        haltMomentum()
+    }
     
     // MARK: - TouchGestureRecognizerDelegate
     
@@ -57,6 +67,8 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
     }
     
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didStartPanWithSession session: InteractionSession) {
+        haltMomentum()
+        
         guard userIntent == .enabled else {
             TouchBridgeLogger.info(.semantic, "Pan gesture observed, but interaction is SUPPRESSED (UserIntent is DISABLED).")
             return
@@ -65,14 +77,27 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
         let appName = session.context?.applicationName ?? "Application"
         TouchBridgeLogger.info(
             .semantic,
-            "Semantic Pan STARTED on [\(appName)] [InitialVal: \(String(format: "%.3f", session.initialScrollValue)) | Height: \(String(format: "%.0f", session.visibleHeight)) pt]"
+            "Direct Pan STARTED on [\(appName)] (Contacts: \(session.contactCount))"
         )
+        
+        if preferContinuousCGScroll || session.context?.scrollBarElement == nil {
+            postScrollWheelEvent(location: session.startGlobalPoint.cgGlobal, deltaY: 0, phase: 1, momentumPhase: 0)
+        }
+        
         delegate?.semanticRouter(self, didUpdateFeedback: "Pan Started [\(appName)]", invariantPassed: true)
+    }
+    
+    public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didUpdatePanDeltaWithSession session: InteractionSession, deltaPixels: CGVector) {
+        guard userIntent == .enabled else { return }
+        
+        if preferContinuousCGScroll || session.context?.scrollBarElement == nil {
+            postScrollWheelEvent(location: session.latestGlobalPoint.cgGlobal, deltaY: deltaPixels.dy, phase: 2, momentumPhase: 0)
+        }
     }
     
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didUpdatePanWithSession session: InteractionSession, targetValue: Double) {
         guard userIntent == .enabled else { return }
-        guard let bar = session.context?.scrollBarElement else { return }
+        guard !preferContinuousCGScroll, let bar = session.context?.scrollBarElement else { return }
         
         let scheduledAt = Date()
         let cursorBefore = SafetyInvariants.currentCursorPosition()
@@ -114,63 +139,84 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
     
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didCompletePanWithSession session: InteractionSession) {
         guard userIntent == .enabled else { return }
-        guard let ctx = session.context else { return }
+        haltMomentum()
         
-        // 1. Value observed at touch-up before any flush
-        var valAtUp: Double? = nil
-        var upRef: AnyObject?
-        if let bar = ctx.scrollBarElement, AXUIElementCopyAttributeValue(bar, kAXValueAttribute as CFString, &upRef) == .success, let r = upRef {
-            if let n = r as? NSNumber { valAtUp = n.doubleValue }
-            else if let d = Double(String(describing: r)) { valAtUp = d }
+        if preferContinuousCGScroll || session.context?.scrollBarElement == nil {
+            postScrollWheelEvent(location: session.latestGlobalPoint.cgGlobal, deltaY: 0, phase: 4, momentumPhase: 0)
         }
-        session.trace?.recordTouchUp(fingerY: session.latestGlobalPoint.cgGlobal.y, valueObserved: valAtUp)
         
         let cursorBefore = SafetyInvariants.currentCursorPosition()
         let cursorAfter = SafetyInvariants.currentCursorPosition()
         SafetyInvariants.assertPointerIsolation(cursorBefore: cursorBefore, cursorAfter: cursorAfter, context: "Pan Complete")
         
-        // Record pan-end
-        var endVal: Double? = nil
-        var endRef: AnyObject?
-        if let bar = ctx.scrollBarElement, AXUIElementCopyAttributeValue(bar, kAXValueAttribute as CFString, &endRef) == .success, let r = endRef {
-            if let n = r as? NSNumber { endVal = n.doubleValue }
-            else if let d = Double(String(describing: r)) { endVal = d }
-        }
-        session.trace?.recordPanEnd(fingerY: session.latestGlobalPoint.cgGlobal.y, valueObserved: endVal)
-        
-        // Schedule delayed readbacks for +35ms and +100ms
-        if let trace = session.trace, let bar = ctx.scrollBarElement {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.035) {
-                var v35: Double? = nil
-                var vRef: AnyObject?
-                if AXUIElementCopyAttributeValue(bar, kAXValueAttribute as CFString, &vRef) == .success, let r = vRef {
-                    if let n = r as? NSNumber { v35 = n.doubleValue }
-                    else if let d = Double(String(describing: r)) { v35 = d }
-                }
-                trace.recordPostUpReadback(delayMs: 35, value: v35)
-            }
-            
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.100) {
-                var v100: Double? = nil
-                var vRef: AnyObject?
-                if AXUIElementCopyAttributeValue(bar, kAXValueAttribute as CFString, &vRef) == .success, let r = vRef {
-                    if let n = r as? NSNumber { v100 = n.doubleValue }
-                    else if let d = Double(String(describing: r)) { v100 = d }
-                }
-                trace.recordPostUpReadback(delayMs: 100, value: v100)
-            }
-        }
-        
         session.cursorBefore = cursorBefore
         session.cursorAfter = cursorAfter
         
         let totalDeltaY = session.latestGlobalPoint.cgGlobal.y - session.startGlobalPoint.cgGlobal.y
-        let summary = "PAN_COMPLETED on [\(ctx.applicationName)]: Updates=\(session.panUpdatesCount) | DeltaY=\(String(format: "%.1f", totalDeltaY)) pt | Scroll=\(String(format: "%.3f -> %.3f", session.initialScrollValue, session.lastDispatchedScrollValue))"
+        let appName = session.context?.applicationName ?? "Application"
+        let summary = "PAN_COMPLETED on [\(appName)]: Updates=\(session.panUpdatesCount) | DeltaY=\(String(format: "%.1f", totalDeltaY)) pt"
         session.panActionResult = summary
         
         TouchBridgeLogger.info(.semantic, summary)
         delegate?.semanticRouter(self, didUpdateFeedback: summary, invariantPassed: true)
         delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
+    }
+    
+    public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didEnterMomentumWithSession session: InteractionSession, initialVelocity: CGVector) {
+        guard userIntent == .enabled else { return }
+        haltMomentum()
+        
+        // 1. Terminate the touch phase
+        postScrollWheelEvent(location: session.latestGlobalPoint.cgGlobal, deltaY: 0, phase: 4, momentumPhase: 0)
+        
+        // 2. Start kinetic momentum
+        self.activeMomentumSession = session
+        self.currentMomentumVelocity = initialVelocity
+        
+        let dt: Double = 0.016
+        let initialStep = initialVelocity.dy * dt
+        postScrollWheelEvent(location: session.latestGlobalPoint.cgGlobal, deltaY: initialStep, phase: 0, momentumPhase: 1)
+        
+        let initialSpeed = hypot(initialVelocity.dx, initialVelocity.dy)
+        TouchBridgeLogger.info(
+            .semantic,
+            "Kinetic Momentum Started: speed=\(String(format: "%.1f", initialSpeed)) pt/s, initialStep=\(String(format: "%.2f", initialStep)) px"
+        )
+        
+        self.momentumTimer = Timer.scheduledTimer(withTimeInterval: dt, repeats: true) { [weak self] timer in
+            guard let self = self, let active = self.activeMomentumSession else {
+                timer.invalidate()
+                return
+            }
+            
+            self.currentMomentumVelocity.dy *= GestureArbitrationConfig.momentumDecayFactor
+            let speed = abs(self.currentMomentumVelocity.dy)
+            let step = self.currentMomentumVelocity.dy * dt
+            
+            if speed < GestureArbitrationConfig.minMomentumVelocityPtPerSec {
+                // Natural momentum termination
+                timer.invalidate()
+                self.momentumTimer = nil
+                self.postScrollWheelEvent(location: active.latestGlobalPoint.cgGlobal, deltaY: 0, phase: 0, momentumPhase: 4)
+                active.markMomentumEnded()
+                TouchBridgeLogger.info(.semantic, "Kinetic momentum settled naturally.")
+                self.delegate?.semanticRouter(self, didCompleteSession: active, evidenceBlock: active.formattedEvidenceBlock())
+                self.activeMomentumSession = nil
+            } else {
+                // Continuous kinetic momentum step
+                self.postScrollWheelEvent(location: active.latestGlobalPoint.cgGlobal, deltaY: step, phase: 0, momentumPhase: 2)
+            }
+        }
+    }
+    
+    public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didInterruptMomentumWithSession session: InteractionSession) {
+        if let active = activeMomentumSession {
+            haltMomentum()
+            postScrollWheelEvent(location: active.latestGlobalPoint.cgGlobal, deltaY: 0, phase: 0, momentumPhase: 4)
+            active.markMomentumEnded()
+            TouchBridgeLogger.info(.semantic, "Kinetic momentum INTERRUPTED immediately by new touch contact.")
+            self.activeMomentumSession = nil
+        }
     }
     
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didMarkUnsupportedPan session: InteractionSession) {
@@ -181,12 +227,13 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
         session.panActionResult = "None (Continuous scroll backend missing; action suppressed without synthetic events)"
         TouchBridgeLogger.warning(
             .semantic,
-            "PAN_UNSUPPORTED on [\(appName)]: Movement (\(String(format: "%.1f", session.maxMovementPt)) pt) crossed pan threshold on surface without writable continuous scrollbar. Action suppressed without synthetic events."
+            "PAN_UNSUPPORTED on [\(appName)]: Movement (\(String(format: "%.1f", session.maxMovementPt)) pt) crossed pan threshold on surface without writable continuous scrollbar. Action suppressed."
         )
         delegate?.semanticRouter(self, didUpdateFeedback: "Unsupported Pan [\(appName)]", invariantPassed: true)
     }
     
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didCancelSession session: InteractionSession, reason: String) {
+        haltMomentum()
         session.cursorAfter = SafetyInvariants.currentCursorPosition()
         TouchBridgeLogger.debug(.gesture, "Gesture session cancelled: \(reason) (Mov: \(String(format: "%.1f", session.maxMovementPt)) pt)")
         
@@ -195,20 +242,18 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
         }
     }
     
-    // MARK: - Capability-Authorized Tap Execution (P3-02 Section 5 & 9)
+    // MARK: - Capability-Authorized Tap Execution (P3-02 & P3-03R Phase B)
     
     private func executeCapabilityAuthorizedTap(session: InteractionSession) {
-        // Invariant assertion: session must have qualified as tapExecuted
         if session.state != .tapExecuted {
             session.recordDelayedTapViolation()
             TouchBridgeLogger.error(.semantic, "CRITICAL ARBITRATION VIOLATION: Tap executed when session state was \(session.state)!")
         }
         
         guard let context = session.context else {
-            TouchBridgeLogger.warning(.semantic, "Hit-test found no element at tap position.")
-            session.tapActionResult = "No Element at Tap Position"
-            delegate?.semanticRouter(self, didUpdateFeedback: "No Element at Tap Position", invariantPassed: true)
-            delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
+            // Hit-test found no AX element -> Engage CoreGraphics Primary Click fallback
+            TouchBridgeLogger.info(.semantic, "Hit-test found no AX element at tap position. Engaging CG Primary Click fallback.")
+            executeCoreGraphicsPrimaryClick(point: session.startGlobalPoint.cgGlobal, session: session)
             return
         }
         
@@ -339,17 +384,70 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
             return
         }
         
-        // 5. NO ACTIONABLE CAPABILITY EXPOSED
-        // Absolute prohibition: Zero synthetic mouse fallback! Zero cursor movement!
-        session.cursorBefore = SafetyInvariants.currentCursorPosition()
-        session.cursorAfter = session.cursorBefore
-        session.tapActionResult = "None (No actionable capability exposed on \(hitNode.role))"
-        TouchBridgeLogger.warning(
+        // 5. CAPABILITY FALLBACK: CoreGraphics Primary Click (P3-03R Phase B)
+        // Public CoreGraphics primary-click fallback where AX cannot provide reliable activation (e.g. Safari web links, custom buttons).
+        TouchBridgeLogger.info(
             .semantic,
-            "SEMANTIC_UNSUPPORTED: Element at tap exposes no supported semantic capability. Role: \"\(hitNode.role)\", Supported Actions: \(hitNode.supportedActions), Settable Attrs: \(hitNode.settableAttributes). Fallback mouse click prohibited."
+            "Element [\(hitNode.role)] exposes no actionable semantic action. Engaging CoreGraphics Primary Click fallback."
         )
-        delegate?.semanticRouter(self, didUpdateFeedback: "No Actionable Capability [\(hitNode.role)]", invariantPassed: true)
+        executeCoreGraphicsPrimaryClick(point: session.startGlobalPoint.cgGlobal, session: session)
+    }
+    
+    private func executeCoreGraphicsPrimaryClick(point: CGPoint, session: InteractionSession) {
+        let cursorBefore = SafetyInvariants.currentCursorPosition()
+        
+        guard let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: point, mouseButton: .left),
+              let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: .left) else {
+            TouchBridgeLogger.error(.semantic, "Failed to synthesize CGEvent left click at (\(point.x), \(point.y))")
+            session.tapActionResult = "Failed to create CGEvent left click"
+            delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
+            return
+        }
+        
+        down.post(tap: .cghidEventTap)
+        usleep(10_000) // 10ms click hold duration
+        up.post(tap: .cghidEventTap)
+        
+        let cursorAfter = SafetyInvariants.currentCursorPosition()
+        session.cursorBefore = cursorBefore
+        session.cursorAfter = cursorAfter
+        let role = session.context?.hitNode.role ?? "None"
+        session.tapActionResult = "CGPrimaryClick Fallback at (\(String(format: "%.1f, %.1f", point.x, point.y))) [\(role)]"
+        
+        TouchBridgeLogger.info(
+            .semantic,
+            "Capability Authorized [TAP_CG_FALLBACK] -> Dispatched CG Primary Left Click at (\(String(format: "%.1f, %.1f", point.x, point.y))) [Target: \(role)]"
+        )
+        delegate?.semanticRouter(self, didUpdateFeedback: "Tap -> CG Click (\(String(format: "%.0f, %.0f", point.x, point.y)))", invariantPassed: true)
         delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
+    }
+    
+    private func postScrollWheelEvent(location: CGPoint, deltaY: Double, phase: Int64, momentumPhase: Int64) {
+        guard let event = CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .pixel,
+            wheelCount: 1,
+            wheel1: Int32(round(deltaY)),
+            wheel2: 0,
+            wheel3: 0
+        ) else { return }
+        
+        event.location = location
+        if phase != 0 {
+            event.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
+        }
+        if momentumPhase != 0 {
+            event.setIntegerValueField(.scrollWheelEventMomentumPhase, value: momentumPhase)
+        }
+        event.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: deltaY)
+        event.post(tap: .cghidEventTap)
+    }
+    
+    private func haltMomentum() {
+        if let timer = momentumTimer {
+            timer.invalidate()
+            momentumTimer = nil
+        }
     }
     
     private func probeElement(at globalCG: CGPoint) {

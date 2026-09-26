@@ -5,20 +5,25 @@ import ApplicationServices
 
 // MARK: - P3-02 Interaction Session & Gesture Arbitration Taxonomy
 
-/// Deterministic states of a physical single-touch contact session.
+/// Deterministic states of a physical single-touch / multi-touch contact session (P3-03R Phase B).
 public enum GestureState: Equatable, CustomStringConvertible {
     case idle
     case possibleTap        // Movement is below panThreshold; eligible for tap on release
-    case semanticPan        // Movement crossed panThreshold; actively driving continuous semantic scroll
-    case unsupportedPan     // Movement crossed panThreshold, but surface has no semantic scroll backend
+    case directPan          // Active continuous direct-touch pan (1 or 2 fingers)
+    case momentum           // Kinetic coasting after flick release
+    case unsupportedPan     // Movement crossed panThreshold, but surface has no scroll backend
     case tapExecuted        // Released while in possibleTap -> Tap successfully dispatched
-    case cancelled(reason: String) // Cancelled (hold timeout, micro-glitch, hot-plug disconnect)
+    case cancelled(reason: String) // Cancelled (micro-glitch, hot-plug disconnect)
+    
+    // Backwards-compatible alias for P3-02 tests and loggers
+    public static var semanticPan: GestureState { .directPan }
     
     public var description: String {
         switch self {
         case .idle: return "IDLE"
         case .possibleTap: return "POSSIBLE_TAP"
-        case .semanticPan: return "SEMANTIC_PAN"
+        case .directPan: return "DIRECT_PAN"
+        case .momentum: return "MOMENTUM"
         case .unsupportedPan: return "UNSUPPORTED_PAN"
         case .tapExecuted: return "TAP_EXECUTED"
         case .cancelled(let reason): return "CANCELLED(\(reason))"
@@ -26,16 +31,19 @@ public enum GestureState: Equatable, CustomStringConvertible {
     }
 }
 
-/// Explicit Interaction Result Taxonomy (P3-02 Section 12).
+/// Explicit Interaction Result Taxonomy (P3-02 Section 12 & P3-03R).
 public enum InteractionResultType: String, Codable {
     case tapPressSuccess      = "TAP_PRESS_SUCCESS"
     case tapFocusSuccess      = "TAP_FOCUS_SUCCESS"
     case tapSelectionSuccess  = "TAP_SELECTION_SUCCESS"
     case tapMenuSuccess       = "TAP_MENU_SUCCESS"
+    case tapCGClickSuccess    = "TAP_CG_CLICK_SUCCESS"
     
     case panStarted           = "PAN_STARTED"
     case panUpdated           = "PAN_UPDATED"
     case panCompleted         = "PAN_COMPLETED"
+    case momentumStarted      = "MOMENTUM_STARTED"
+    case momentumEnded        = "MOMENTUM_ENDED"
     
     case panUnsupported       = "PAN_UNSUPPORTED"
     case gestureCancelled     = "GESTURE_CANCELLED"
@@ -43,27 +51,29 @@ public enum InteractionResultType: String, Codable {
     case axFailure            = "AX_FAILURE"
 }
 
-/// Centralized, tunable arbitration thresholds (P3-02 Section 16 & P3-03 Section 2).
+/// Centralized, tunable arbitration thresholds (P3-02 Section 16 & P3-03R).
 public struct GestureArbitrationConfig {
-    /// Baseline movement tolerance threshold in points.
+    /// Baseline movement tolerance threshold in points (touch slop).
     /// Below this: candidate for TAP.
-    /// Exceeding this: permanently cancels TAP and transitions to PAN (or UNSUPPORTED_PAN).
+    /// Exceeding this: permanently cancels TAP and transitions to DIRECT_PAN.
     public static var panThresholdPt: Double = 18.0
     
-    /// Minimum contact duration to filter out electrical glitches or micro-bounces.
+    /// Minimum contact duration to filter out electrical glitches or micro-bounces (15 ms).
     public static var minTapDurationSec: Double = 0.015
     
-    /// Maximum contact duration for a momentary tap. Holds exceeding this are cancelled.
-    public static var maxTapDurationSec: Double = 0.85
-    
-    /// Rate-limiting interval for continuous AX scroll writes (~60 Hz) to avoid AX IPC queuing.
+    /// Rate-limiting interval for continuous AX scroll writes (~60 Hz).
     public static var scrollCoalesceIntervalSec: Double = 0.016
     
-    /// Deadband for continuous pan updates to eliminate stationary finger tremor from issuing redundant AX writes.
+    /// Deadband for continuous pan updates to eliminate stationary finger tremor from issuing redundant writes.
     public static var panUpdateDeadbandPt: Double = 2.0
     
     /// Minimum scroll value delta to prevent floating-point noise updates.
     public static var minScrollValueDelta: Double = 0.0008
+    
+    /// Kinetic momentum parameters (P3-03R Phase C)
+    public static var minFlickVelocityPtPerSec: Double = 60.0
+    public static var momentumDecayFactor: Double = 0.94
+    public static var minMomentumVelocityPtPerSec: Double = 10.0
 }
 
 /// Actions emitted during gesture transition evaluation.
@@ -71,13 +81,17 @@ public enum GestureTransitionAction {
     case none
     case transitionedToPan(initialValue: Double)
     case transitionedToUnsupportedPan
-    case panValueUpdated(targetValue: Double)
+    case panValueUpdated(targetValue: Double, deltaPixels: CGVector)
 }
 
-/// Represents one explicit physical contact session (P3-02 Section 2).
+/// Represents one explicit physical contact session (P3-02 Section 2 & P3-03R).
 public final class InteractionSession {
     public let id: String
     public let contactID: Int
+    public var contactCount: Int = 1
+    public var secondaryContactID: Int? = nil
+    public var allowCGScrollFallback: Bool = true
+    
     public let startTimeMach: UInt64
     public let startTimeDate: Date
     public let startRawPoint: RawHIDPoint
@@ -90,6 +104,12 @@ public final class InteractionSession {
     public private(set) var maxMovementPt: Double = 0.0
     public private(set) var currentMovementPt: Double = 0.0
     public private(set) var state: GestureState = .possibleTap
+    
+    // Velocity tracking (P3-03R Phase B & C)
+    public private(set) var instantaneousVelocity: CGVector = .zero
+    public private(set) var filteredVelocity: CGVector = .zero
+    private var lastSampleTimeDate: Date
+    private var lastSamplePoint: CGPoint
     
     // Cached Early Capability Context (P3-02 Section 4 & 9)
     public let context: AXInteractionContext?
@@ -128,6 +148,10 @@ public final class InteractionSession {
         self.contactID = startSample.contactID
         self.startTimeMach = startSample.timestamp
         self.startTimeDate = Date()
+        self.lastSampleTimeDate = self.startTimeDate
+        self.lastSamplePoint = globalPoint.cgGlobal
+        self.instantaneousVelocity = .zero
+        self.filteredVelocity = .zero
         self.startRawPoint = startSample.rawPoint
         self.startSensorPoint = startSample.normalizedSensorPoint
         self.startLocalPoint = localPoint
@@ -195,27 +219,43 @@ public final class InteractionSession {
             maxMovementPt = dist
         }
         
+        // Calculate instantaneous and filtered velocity (P3-03R Phase B & C)
+        let dt = max(0.001, now.timeIntervalSince(lastSampleTimeDate))
+        let frameDx = global.cgGlobal.x - lastSamplePoint.x
+        let frameDy = global.cgGlobal.y - lastSamplePoint.y
+        let vx = frameDx / dt
+        let vy = frameDy / dt
+        self.instantaneousVelocity = CGVector(dx: vx, dy: vy)
+        
+        let alpha = 0.35
+        self.filteredVelocity = CGVector(
+            dx: alpha * vx + (1.0 - alpha) * filteredVelocity.dx,
+            dy: alpha * vy + (1.0 - alpha) * filteredVelocity.dy
+        )
+        self.lastSampleTimeDate = now
+        self.lastSamplePoint = global.cgGlobal
+        
         switch state {
         case .possibleTap:
             if dist > GestureArbitrationConfig.panThresholdPt {
                 self.timeToPanSec = now.timeIntervalSince(startTimeDate)
                 self.movementAtPanTransitionPt = dist
                 
-                // Permanently cancel TAP (P3-02 Section 3)
+                // Permanently cancel TAP (P3-02 Section 3 & P3-03R)
                 if hasValidContinuousScrollBackend() {
-                    state = .semanticPan
-                    transitionDescription = "possibleTap -> semanticPan"
-                    panActionResult = "Continuous semantic scroll active"
+                    state = .directPan
+                    transitionDescription = "possibleTap -> directPan"
+                    panActionResult = "Continuous direct-touch pan active"
                     trace?.recordPanStart(fingerY: global.cgGlobal.y)
                     TouchBridgeLogger.debug(
                         .gesture,
-                        "Arbitration: Movement (%.1f pt) > Threshold (%.1f pt) -> Transition to SEMANTIC_PAN on [\(context?.applicationName ?? "App")]"
+                        "Arbitration: Movement (%.1f pt) > Threshold (%.1f pt) -> Transition to DIRECT_PAN on [\(context?.applicationName ?? "App")]"
                     )
                     return .transitionedToPan(initialValue: initialScrollValue)
                 } else {
                     state = .unsupportedPan
                     transitionDescription = "possibleTap -> unsupportedPan"
-                    panActionResult = "Unsupported pan suppressed (no continuous semantic scroll backend)"
+                    panActionResult = "Unsupported pan suppressed (no continuous scroll backend)"
                     TouchBridgeLogger.debug(
                         .gesture,
                         "Arbitration: Movement (%.1f pt) > Threshold (%.1f pt) on unsupported surface -> Transition to UNSUPPORTED_PAN"
@@ -225,13 +265,48 @@ public final class InteractionSession {
             }
             return .none
             
-        case .semanticPan:
+        case .directPan:
             let targetValue = calculateTargetScrollValue(currentY: global.cgGlobal.y)
-            return .panValueUpdated(targetValue: targetValue)
+            let deltaPixels = CGVector(dx: frameDx, dy: frameDy)
+            return .panValueUpdated(targetValue: targetValue, deltaPixels: deltaPixels)
             
-        case .unsupportedPan, .idle, .tapExecuted, .cancelled:
+        case .unsupportedPan, .idle, .tapExecuted, .cancelled, .momentum:
             return .none
         }
+    }
+    
+    /// Immediate promotion to two-finger pan when a secondary contact arrives (P3-03R Phase B).
+    public func promoteToTwoFingerPan(centroid: CGPoint, now: Date = Date()) {
+        guard state == .possibleTap else { return }
+        self.contactCount = 2
+        self.timeToPanSec = now.timeIntervalSince(startTimeDate)
+        self.movementAtPanTransitionPt = currentMovementPt
+        if hasValidContinuousScrollBackend() {
+            state = .directPan
+            transitionDescription = "possibleTap -> directPan (two-finger)"
+            panActionResult = "Two-finger direct-touch pan active"
+            trace?.recordPanStart(fingerY: centroid.y)
+            TouchBridgeLogger.info(
+                .gesture,
+                "Arbitration: Secondary contact detected -> Immediate Transition to TWO-FINGER DIRECT_PAN"
+            )
+        } else {
+            state = .unsupportedPan
+            transitionDescription = "possibleTap -> unsupportedPan (two-finger)"
+            panActionResult = "Unsupported two-finger pan suppressed"
+        }
+    }
+    
+    public func markMomentumStarted() {
+        state = .momentum
+        transitionDescription = "directPan -> momentum"
+        panActionResult = "Kinetic momentum coasting"
+    }
+    
+    public func markMomentumEnded() {
+        state = .idle
+        transitionDescription = "momentum -> idle"
+        panActionResult = "Kinetic momentum ended"
     }
     
     /// Natural 1:1 direct touch scroll calculation relative to initial touch-down (P3-02 Section 7).
@@ -243,6 +318,18 @@ public final class InteractionSession {
         let proportionalDelta = (-fingerDeltaY / visibleHeight) * valueSpan
         let rawNewVal = initialScrollValue + proportionalDelta
         return max(minScrollValue, min(maxScrollValue, rawNewVal))
+    }
+    
+    public func hasValidContinuousScrollBackend() -> Bool {
+        if let ctx = context {
+            if ctx.scrollCapability.hasScrollArea && ctx.scrollBarElement != nil && ctx.scrollCapability.isVerticalValueSettable {
+                return true
+            }
+            if ctx.scrollCapability.hasScrollArea && allowCGScrollFallback {
+                return true
+            }
+        }
+        return false
     }
     
     /// Checks whether an AX write should occur (throttled to ~60Hz, with deadband filtering to prevent stationary jitter).
@@ -286,10 +373,6 @@ public final class InteractionSession {
         trace?.recordCoalescedSkip(fingerY: fingerY, targetValue: targetValue)
     }
     
-    public func hasValidContinuousScrollBackend() -> Bool {
-        guard let ctx = context else { return false }
-        return ctx.scrollCapability.mechanism == "DIRECT_VALUE" && ctx.scrollBarElement != nil
-    }
     
     public func cancel(reason: String) {
         state = .cancelled(reason: reason)

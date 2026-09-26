@@ -1,7 +1,7 @@
 {
   "allPassed" : true,
   "failedTests" : 0,
-  "passedTests" : 28,
+  "passedTests" : 29,
   "suiteName" : "TouchBridge P3-01 to P3-03 Runtime & Gesture Validation Suite",
   "testResults" : [
     {
@@ -100,7 +100,7 @@
       "passed" : true
     },
     {
-      "details" : "Fast swipe transitioned to pan and dispatched initial scroll write immediately on transition report (reducing perceived latency).",
+      "details" : "Fast swipe transitioned to pan, dispatched initial scroll write immediately on transition report, and entered kinetic momentum upon release.",
       "name" : "Test 20: P3-03 Fast Ballistic Pan & Immediate Initial Dispatch",
       "passed" : true
     },
@@ -135,16 +135,21 @@
       "passed" : true
     },
     {
-      "details" : "Contact held stationary beyond maxTapDurationSec (0.95s > 0.85s) rejected with HOLD_DURATION_EXCEEDED; tap suppressed.",
-      "name" : "Test 27: P3-03 Accidental Touch — Stationary Hold Timeout Rejection",
+      "details" : "Stationary finger held without exceeding touch slop qualifies cleanly as TAP upon release; arbitrary 850ms timeout eliminated.",
+      "name" : "Test 27: P3-03R Stationary Hold Permitted (No Arbitrary 850ms Cutoff)",
       "passed" : true
     },
     {
-      "details" : "Secondary contact down\/move\/up (ID=20) safely ignored; primary contact (ID=10) maintained 0.0 pt movement and completed clean Tap.",
-      "name" : "Test 28: P3-03 Single-Touch — ContactID Isolation & Secondary Contact Suppression",
+      "details" : "Two contacts detected and promoted intentionally to two-finger DIRECT_PAN; centroid displacement tracked without phantom system gestures.",
+      "name" : "Test 28: P3-03R Intentional Two-Finger Pan & Centroid Tracking",
+      "passed" : true
+    },
+    {
+      "details" : "Fast release entered kinetic momentum (velocity >= 60 pt\/s); subsequent touch down immediately interrupted active momentum.",
+      "name" : "Test 29: P3-03R Kinetic Momentum Flick & Immediate Touch Interruption",
       "passed" : true
     }
   ],
-  "timestamp" : "2026-09-26T19:00:30Z",
-  "totalTests" : 28
+  "timestamp" : "2026-09-26T19:47:05Z",
+  "totalTests" : 29
 }

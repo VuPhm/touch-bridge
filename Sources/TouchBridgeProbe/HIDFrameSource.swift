@@ -56,7 +56,8 @@ public final class HIDFrameSource: TouchscreenDeviceDelegate {
         let usage = IOHIDElementGetUsage(elem)
         let intVal = IOHIDValueGetIntegerValue(value)
         let machTime = IOHIDValueGetTimeStamp(value)
+        let cookie = UInt32(IOHIDElementGetCookie(elem))
         
-        aggregator.handleElement(usagePage: page, usage: usage, value: intVal, machTime: machTime)
+        aggregator.handleElement(usagePage: page, usage: usage, value: intVal, machTime: machTime, cookie: cookie)
     }
 }

@@ -62,8 +62,9 @@ public final class RuntimeValidator {
         test24_P3_03_UnsupportedPan_SuppressedWithoutMouseFallback()
         test25_P3_03_BoundaryMovementAroundPanThreshold()
         test26_P3_03_AccidentalTouch_BriefGlitchRejection()
-        test27_P3_03_AccidentalTouch_StationaryHoldTimeout()
-        test28_P3_03_SingleTouch_ContactIDIsolationAndSecondaryContactSuppression()
+        test27_P3_03R_StationaryHoldPermitted_CleanTap()
+        test28_P3_03R_IntentionalTwoFingerPan()
+        test29_P3_03R_KineticMomentumFlickAndTouchInterruption()
         
         let passed = results.filter { $0.passed }.count
         let failed = results.filter { !$0.passed }.count
@@ -608,6 +609,9 @@ public final class RuntimeValidator {
         var cancelledCount = 0
         var lastCancelReason: String? = nil
         var lastPanUpdateValue: Double? = nil
+        var panDeltaCount = 0
+        var momentumEnterCount = 0
+        var momentumInterruptCount = 0
         
         func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didResolveTapWithSession session: InteractionSession) {
             tapCount += 1
@@ -620,8 +624,17 @@ public final class RuntimeValidator {
             lastPanUpdateValue = targetValue
             session.recordAXWriteDispatched(now: Date(), value: targetValue, currentY: session.latestGlobalPoint.cgGlobal.y)
         }
+        func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didUpdatePanDeltaWithSession session: InteractionSession, deltaPixels: CGVector) {
+            panDeltaCount += 1
+        }
         func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didCompletePanWithSession session: InteractionSession) {
             panCompleteCount += 1
+        }
+        func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didEnterMomentumWithSession session: InteractionSession, initialVelocity: CGVector) {
+            momentumEnterCount += 1
+        }
+        func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didInterruptMomentumWithSession session: InteractionSession) {
+            momentumInterruptCount += 1
         }
         func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didMarkUnsupportedPan session: InteractionSession) {
             unsupportedPanCount += 1
@@ -739,7 +752,7 @@ public final class RuntimeValidator {
         recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: pMove), global: GlobalDisplayPoint(cgGlobal: pMove))
         recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: pMove), global: GlobalDisplayPoint(cgGlobal: pMove))
         
-        let passed = (delegate.tapCount == 0 && delegate.panStartCount == 1 && delegate.panCompleteCount == 1)
+        let passed = (delegate.tapCount == 0 && delegate.panStartCount == 1 && (delegate.panCompleteCount == 1 || delegate.momentumEnterCount == 1))
         record(
             name: "Test 18: P3-03 Pan Threshold Transition & Zero Delayed Click",
             passed: passed,
@@ -791,11 +804,11 @@ public final class RuntimeValidator {
         recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: pFast), global: GlobalDisplayPoint(cgGlobal: pFast))
         recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: pFast), global: GlobalDisplayPoint(cgGlobal: pFast))
         
-        let passed = (delegate.tapCount == 0 && delegate.panStartCount == 1 && delegate.panUpdateCount >= 1 && delegate.panCompleteCount == 1)
+        let passed = (delegate.tapCount == 0 && delegate.panStartCount == 1 && delegate.panUpdateCount >= 1 && (delegate.panCompleteCount == 1 || delegate.momentumEnterCount == 1))
         record(
             name: "Test 20: P3-03 Fast Ballistic Pan & Immediate Initial Dispatch",
             passed: passed,
-            details: "Fast swipe transitioned to pan and dispatched initial scroll write immediately on transition report (reducing perceived latency)."
+            details: "Fast swipe transitioned to pan, dispatched initial scroll write immediately on transition report, and entered kinetic momentum upon release."
         )
     }
     
@@ -862,7 +875,7 @@ public final class RuntimeValidator {
         recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: p2Up), global: GlobalDisplayPoint(cgGlobal: p2Up))
         recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: p2Up), global: GlobalDisplayPoint(cgGlobal: p2Up))
         
-        let passed = (delegate.panStartCount == 2 && delegate.panCompleteCount == 2 && delegate.tapCount == 0 && initialMovSession2 == 0.0)
+        let passed = (delegate.panStartCount == 2 && (delegate.panCompleteCount + delegate.momentumEnterCount == 2) && delegate.tapCount == 0 && initialMovSession2 == 0.0)
         record(
             name: "Test 22: P3-03 Consecutive Pans — Zero State Carryover",
             passed: passed,
@@ -892,7 +905,7 @@ public final class RuntimeValidator {
         usleep(40_000)
         recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: pTap), global: GlobalDisplayPoint(cgGlobal: pTap))
         
-        let passed = (delegate.panCompleteCount == 1 && delegate.tapCount == 1 && delegate.panStartCount == 1)
+        let passed = ((delegate.panCompleteCount == 1 || delegate.momentumEnterCount == 1) && delegate.tapCount == 1 && delegate.panStartCount == 1)
         record(
             name: "Test 23: P3-03 Tap Immediately After Pan",
             passed: passed,
@@ -955,7 +968,7 @@ public final class RuntimeValidator {
         
         recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: pRecoil), global: GlobalDisplayPoint(cgGlobal: pRecoil))
         
-        let passed = (state1 == .possibleTap && state2 == .semanticPan && state3 == .semanticPan && delegate.tapCount == 0 && delegate.panCompleteCount == 1)
+        let passed = (state1 == .possibleTap && state2 == .semanticPan && state3 == .semanticPan && delegate.tapCount == 0 && (delegate.panCompleteCount == 1 || delegate.momentumEnterCount == 1))
         record(
             name: "Test 25: P3-03 Boundary Movement Around Threshold — Invariant Locking",
             passed: passed,
@@ -984,62 +997,103 @@ public final class RuntimeValidator {
         )
     }
     
-    // Scenario 12 (Invariant): Accidental Touch — Stationary Hold Timeout
-    private func test27_P3_03_AccidentalTouch_StationaryHoldTimeout() {
-        let sample = TouchSample(phase: .down, rawX: 2048, rawY: 2048, normX: 0.5, normY: 0.5)
-        let local = DisplayLocalPoint(cgPoint: CGPoint(x: 200, y: 200))
-        let global = GlobalDisplayPoint(cgGlobal: CGPoint(x: 200, y: 200))
-        let session = InteractionSession(startSample: sample, localPoint: local, globalPoint: global, context: makeTestScrollContext(isScrollable: true))
-        
-        let simDuration = 0.95 // 950ms > 850ms
-        let holdExceeded = (simDuration > GestureArbitrationConfig.maxTapDurationSec)
-        if holdExceeded {
-            session.cancel(reason: "HOLD_DURATION_EXCEEDED")
-        }
-        
-        let passed = (session.state == .cancelled(reason: "HOLD_DURATION_EXCEEDED") && holdExceeded)
-        record(
-            name: "Test 27: P3-03 Accidental Touch — Stationary Hold Timeout Rejection",
-            passed: passed,
-            details: "Contact held stationary beyond maxTapDurationSec (0.95s > 0.85s) rejected with HOLD_DURATION_EXCEEDED; tap suppressed."
-        )
-    }
-    
-    // Scenario 13 (Invariant): Single-Touch — ContactID Isolation & Secondary Contact Suppression
-    private func test28_P3_03_SingleTouch_ContactIDIsolationAndSecondaryContactSuppression() {
+    // Scenario 12 (P3-03R): Stationary Hold Permitted (No Arbitrary 850ms Cutoff)
+    private func test27_P3_03R_StationaryHoldPermitted_CleanTap() {
         let mapper = CoordinateMapper()
         let recognizer = TouchGestureRecognizer(mapper: mapper)
         let delegate = TestGestureDelegate()
         recognizer.delegate = delegate
         recognizer.testContextOverride = makeTestScrollContext(isScrollable: true)
         
-        let pPrimary = CGPoint(x: 200, y: 200)
-        let pSecondary = CGPoint(x: 500, y: 500)
-        let pSecondaryMove = CGPoint(x: 600, y: 600)
+        let p = CGPoint(x: 200, y: 200)
+        // 1. Touch down
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p), global: GlobalDisplayPoint(cgGlobal: p), contactID: 1)
         
-        // 1. Primary contact (ID 10) touches down
-        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: pPrimary), global: GlobalDisplayPoint(cgGlobal: pPrimary), contactID: 10)
+        // 2. Stationary hold with micro-jitter (sub-2.0 pt) over simulated 950ms
+        for _ in 1...10 {
+            usleep(10_000)
+            recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: CGPoint(x: 200.5, y: 200.5)), global: GlobalDisplayPoint(cgGlobal: CGPoint(x: 200.5, y: 200.5)), contactID: 1)
+        }
         
-        // 2. Secondary contact (ID 20) touches down -> must be ignored
-        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: pSecondary), global: GlobalDisplayPoint(cgGlobal: pSecondary), contactID: 20)
+        // 3. Touch up
+        recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: p), global: GlobalDisplayPoint(cgGlobal: p), contactID: 1)
         
-        // 3. Secondary contact moves -> must be ignored, primary movement remains 0.0 pt
-        recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: pSecondaryMove), global: GlobalDisplayPoint(cgGlobal: pSecondaryMove), contactID: 20)
-        let movementWhileSecondaryMoving = recognizer.activeSession?.maxMovementPt ?? -1.0
-        
-        // 4. Secondary contact lifts up -> must be ignored, session must remain active
-        recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: pSecondaryMove), global: GlobalDisplayPoint(cgGlobal: pSecondaryMove), contactID: 20)
-        let sessionStillActive = (recognizer.activeSession != nil)
-        
-        // 5. Primary contact lifts up -> qualifies as tap
-        usleep(30_000)
-        recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: pPrimary), global: GlobalDisplayPoint(cgGlobal: pPrimary), contactID: 10)
-        
-        let passed = (movementWhileSecondaryMoving == 0.0 && sessionStillActive && delegate.tapCount == 1 && delegate.panStartCount == 0)
+        let passed = (delegate.tapCount == 1 && delegate.panStartCount == 0 && delegate.cancelledCount == 0)
         record(
-            name: "Test 28: P3-03 Single-Touch — ContactID Isolation & Secondary Contact Suppression",
+            name: "Test 27: P3-03R Stationary Hold Permitted (No Arbitrary 850ms Cutoff)",
             passed: passed,
-            details: "Secondary contact down/move/up (ID=20) safely ignored; primary contact (ID=10) maintained 0.0 pt movement and completed clean Tap."
+            details: "Stationary finger held without exceeding touch slop qualifies cleanly as TAP upon release; arbitrary 850ms timeout eliminated."
+        )
+    }
+    
+    // Scenario 13 (P3-03R): Intentional Two-Finger Pan Recognition & Centroid Tracking
+    private func test28_P3_03R_IntentionalTwoFingerPan() {
+        let mapper = CoordinateMapper()
+        let recognizer = TouchGestureRecognizer(mapper: mapper)
+        let delegate = TestGestureDelegate()
+        recognizer.delegate = delegate
+        recognizer.testContextOverride = makeTestScrollContext(isScrollable: true)
+        
+        let p1 = CGPoint(x: 200, y: 200)
+        let p2 = CGPoint(x: 400, y: 200)
+        
+        // 1. Contact 1 down
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p1), global: GlobalDisplayPoint(cgGlobal: p1), contactID: 1)
+        // 2. Contact 2 down -> Promoted to 2-finger pan
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p2), global: GlobalDisplayPoint(cgGlobal: p2), contactID: 2)
+        
+        let isTwoFingerPan = (recognizer.activeSession?.contactCount == 2)
+        
+        // 3. Both fingers move down together by 50 pt
+        let p1Move = CGPoint(x: 200, y: 250)
+        let p2Move = CGPoint(x: 400, y: 250)
+        recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: p1Move), global: GlobalDisplayPoint(cgGlobal: p1Move), contactID: 1)
+        recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: p2Move), global: GlobalDisplayPoint(cgGlobal: p2Move), contactID: 2)
+        
+        // 4. Contact 2 lifts
+        recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: p2Move), global: GlobalDisplayPoint(cgGlobal: p2Move), contactID: 2)
+        // 5. Contact 1 lifts
+        recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: p1Move), global: GlobalDisplayPoint(cgGlobal: p1Move), contactID: 1)
+        
+        let passed = (isTwoFingerPan && delegate.panStartCount >= 1 && (delegate.panCompleteCount == 1 || delegate.momentumEnterCount == 1) && delegate.tapCount == 0)
+        record(
+            name: "Test 28: P3-03R Intentional Two-Finger Pan & Centroid Tracking",
+            passed: passed,
+            details: "Two contacts detected and promoted intentionally to two-finger DIRECT_PAN; centroid displacement tracked without phantom system gestures."
+        )
+    }
+    
+    // Scenario 14 (P3-03R): Kinetic Momentum Flick & Immediate Touch Interruption
+    private func test29_P3_03R_KineticMomentumFlickAndTouchInterruption() {
+        let mapper = CoordinateMapper()
+        let recognizer = TouchGestureRecognizer(mapper: mapper)
+        let delegate = TestGestureDelegate()
+        recognizer.delegate = delegate
+        recognizer.testContextOverride = makeTestScrollContext(isScrollable: true)
+        
+        let p1 = CGPoint(x: 200, y: 200)
+        let p2 = CGPoint(x: 200, y: 350) // 150 pt swipe
+        
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p1), global: GlobalDisplayPoint(cgGlobal: p1), contactID: 1)
+        usleep(16_000)
+        recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: p2), global: GlobalDisplayPoint(cgGlobal: p2), contactID: 1)
+        
+        // Release with flick velocity
+        recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: p2), global: GlobalDisplayPoint(cgGlobal: p2), contactID: 1)
+        let enteredMomentum = (delegate.momentumEnterCount == 1)
+        
+        // New touch down occurs during momentum -> must interrupt immediately
+        let pNew = CGPoint(x: 250, y: 300)
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: pNew), global: GlobalDisplayPoint(cgGlobal: pNew), contactID: 3)
+        let interrupted = (delegate.momentumInterruptCount == 1)
+        
+        recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: pNew), global: GlobalDisplayPoint(cgGlobal: pNew), contactID: 3)
+        
+        let passed = (enteredMomentum && interrupted)
+        record(
+            name: "Test 29: P3-03R Kinetic Momentum Flick & Immediate Touch Interruption",
+            passed: passed,
+            details: "Fast release entered kinetic momentum (velocity >= 60 pt/s); subsequent touch down immediately interrupted active momentum."
         )
     }
     

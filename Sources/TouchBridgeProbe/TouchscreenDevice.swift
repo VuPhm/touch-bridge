@@ -20,19 +20,27 @@ public final class TouchscreenDevice {
     private(set) var activeDevice: IOHIDDevice?
     private(set) var deviceState: DeviceState = .disconnected
     
-    // Extracted ranges
+    // Extracted ranges & identity
     public private(set) var logMinX: Int = 0
     public private(set) var logMaxX: Int = 4096
     public private(set) var logMinY: Int = 0
     public private(set) var logMaxY: Int = 4096
     public private(set) var deviceName: String = targetNameHint
+    public private(set) var locationID: Int = 0
+    public private(set) var primaryUsagePage: UInt32 = 0
+    public private(set) var primaryUsage: UInt32 = 0
+    public private(set) var isExclusivelySeized: Bool = false
     
     public init() {}
+    
+    deinit {
+        stop()
+    }
     
     public func start() {
         guard hidManager == nil else { return }
         
-        TouchBridgeLogger.info(.hid, "Starting passive IOHIDManager for Target Touchscreen (VID: 0x\(String(format: "%04X", TouchscreenDevice.targetVendorID)), PID: 0x\(String(format: "%04X", TouchscreenDevice.targetProductID)))")
+        TouchBridgeLogger.info(.hid, "Starting IOHIDManager for Target Touchscreen (VID: 0x\(String(format: "%04X", TouchscreenDevice.targetVendorID)), PID: 0x\(String(format: "%04X", TouchscreenDevice.targetProductID)))")
         
         let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
         self.hidManager = manager
@@ -73,13 +81,12 @@ public final class TouchscreenDevice {
         // Schedule on Main RunLoop CommonModes for uninterrupted tracking during menu interactions
         IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
         
-        // Open PASSIVELY (NEVER SEIZE)
         let openRes = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         if openRes != kIOReturnSuccess {
             TouchBridgeLogger.error(.hid, "Failed to open IOHIDManager: 0x\(String(format: "%08X", openRes))")
             transition(to: .error("IOHIDManagerOpen failed: 0x\(String(format: "%08X", openRes))"))
         } else {
-            TouchBridgeLogger.debug(.hid, "IOHIDManager opened passively (kIOHIDOptionsTypeNone)")
+            TouchBridgeLogger.debug(.hid, "IOHIDManager opened for device matching (kIOHIDOptionsTypeNone)")
         }
     }
     
@@ -93,18 +100,70 @@ public final class TouchscreenDevice {
         
         IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
         IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+        
+        if let dev = activeDevice {
+            IOHIDDeviceRegisterInputValueCallback(dev, nil, nil)
+            IOHIDDeviceUnscheduleFromRunLoop(dev, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
+            IOHIDDeviceClose(dev, IOOptionBits(kIOHIDOptionsTypeNone))
+            TouchBridgeLogger.info(.hid, "[INPUT_OWNERSHIP] Cleanly closed and released exclusive ownership of touchscreen device.")
+        }
+        
         self.hidManager = nil
         self.activeDevice = nil
+        self.isExclusivelySeized = false
         transition(to: .disconnected)
     }
     
     private func handleDeviceConnected(_ device: IOHIDDevice) {
         self.activeDevice = device
         
-        // Explicitly open the matched device passively
-        let devOpenRes = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
-        if devOpenRes != kIOReturnSuccess && devOpenRes != kIOReturnStillOpen {
-            TouchBridgeLogger.warning(.hid, "IOHIDDeviceOpen returned 0x\(String(format: "%08X", devOpenRes))")
+        // Read device identity properties
+        let prodName = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? TouchscreenDevice.targetNameHint
+        let vid = (IOHIDDeviceGetProperty(device, kIOHIDVendorIDKey as CFString) as? Int) ?? TouchscreenDevice.targetVendorID
+        let pid = (IOHIDDeviceGetProperty(device, kIOHIDProductIDKey as CFString) as? Int) ?? TouchscreenDevice.targetProductID
+        let loc = (IOHIDDeviceGetProperty(device, kIOHIDLocationIDKey as CFString) as? Int) ?? 0
+        let uPage = UInt32((IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsagePageKey as CFString) as? Int) ?? 0)
+        let usage = UInt32((IOHIDDeviceGetProperty(device, kIOHIDPrimaryUsageKey as CFString) as? Int) ?? 0)
+        
+        self.deviceName = prodName
+        self.locationID = loc
+        self.primaryUsagePage = uPage
+        self.primaryUsage = usage
+        
+        // P3-03R Phase A: Establish Input Ownership via exclusive seize on touchscreen digitizer interface
+        // Requirements:
+        // - Seize ONLY touchscreen digitizer (VID 0x1A86, PID 0xE5E3, Usage Page 0x0D);
+        // - Do NOT seize unrelated keyboard/mouse/control interfaces;
+        // - Log vendor ID, product ID, location ID, usage page, usage;
+        // - Safe fallback path if exclusive access cannot be obtained;
+        // - Release cleanly on disconnect/termination.
+        let isDigitizer = (uPage == 0x0D) || (vid == TouchscreenDevice.targetVendorID && pid == TouchscreenDevice.targetProductID)
+        
+        if isDigitizer {
+            let seizeRes = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
+            if seizeRes == kIOReturnSuccess {
+                self.isExclusivelySeized = true
+                TouchBridgeLogger.info(
+                    .hid,
+                    "[INPUT_OWNERSHIP] Successfully EXCLUSIVELY SEIZED touchscreen digitizer interface: \"\(prodName)\" (VID: 0x\(String(format: "%04X", vid)), PID: 0x\(String(format: "%04X", pid)), Loc: 0x\(String(format: "%08X", loc)), Page: 0x\(String(format: "%02X", uPage)), Usage: 0x\(String(format: "%02X", usage)))"
+                )
+            } else {
+                self.isExclusivelySeized = false
+                TouchBridgeLogger.warning(
+                    .hid,
+                    "[INPUT_OWNERSHIP] Could not obtain exclusive seize (0x\(String(format: "%08X", seizeRes))). Falling back to shared open..."
+                )
+                let devOpenRes = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
+                if devOpenRes != kIOReturnSuccess && devOpenRes != kIOReturnStillOpen {
+                    TouchBridgeLogger.warning(.hid, "IOHIDDeviceOpen returned 0x\(String(format: "%08X", devOpenRes))")
+                }
+            }
+        } else {
+            self.isExclusivelySeized = false
+            let devOpenRes = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
+            if devOpenRes != kIOReturnSuccess && devOpenRes != kIOReturnStillOpen {
+                TouchBridgeLogger.warning(.hid, "IOHIDDeviceOpen returned 0x\(String(format: "%08X", devOpenRes))")
+            }
         }
         
         // Register input value callback directly on the device as well to guarantee delivery
@@ -117,18 +176,12 @@ public final class TouchscreenDevice {
         IOHIDDeviceRegisterInputValueCallback(device, devInputCallback, devContext)
         IOHIDDeviceScheduleWithRunLoop(device, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
         
-        // Read device name and properties
-        let prodName = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? TouchscreenDevice.targetNameHint
-        let vid = (IOHIDDeviceGetProperty(device, kIOHIDVendorIDKey as CFString) as? Int) ?? TouchscreenDevice.targetVendorID
-        let pid = (IOHIDDeviceGetProperty(device, kIOHIDProductIDKey as CFString) as? Int) ?? TouchscreenDevice.targetProductID
-        self.deviceName = prodName
-        
         // Inspect elements for coordinate ranges
         inspectDeviceElements(device)
         
         TouchBridgeLogger.info(
             .hid,
-            "Target Touchscreen CONNECTED & OPENED: \"\(prodName)\" (0x\(String(format: "%04X", vid)):0x\(String(format: "%04X", pid))) | X: [\(logMinX)..\(logMaxX)], Y: [\(logMinY)..\(logMaxY)]"
+            "Target Touchscreen CONNECTED & OPENED: \"\(prodName)\" (0x\(String(format: "%04X", vid)):0x\(String(format: "%04X", pid))) [Seized: \(isExclusivelySeized)] | X: [\(logMinX)..\(logMaxX)], Y: [\(logMinY)..\(logMaxY)]"
         )
         
         transition(to: .available(name: prodName, vid: vid, pid: pid))
@@ -140,6 +193,7 @@ public final class TouchscreenDevice {
         IOHIDDeviceUnscheduleFromRunLoop(device, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
         IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
         self.activeDevice = nil
+        self.isExclusivelySeized = false
         transition(to: .disconnected)
     }
     

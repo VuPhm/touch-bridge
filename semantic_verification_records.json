@@ -17259,5 +17259,1300 @@
     "testCase" : "TouchBridge Semantic Tap",
     "timestamp" : "2026-09-26T18:31:04Z",
     "visibleResult" : "kAXPressAction dispatched successfully to AXMenuBarItem []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Control Center",
+      "descriptionText" : "Clock",
+      "elementFrame" : [
+        2940,
+        161,
+        124,
+        22
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 508,
+      "role" : "AXMenuBarItem",
+      "subrole" : "AXMenuExtra",
+      "supportedActions" : [
+        "AXPress",
+        "AXCancel"
+      ],
+      "value" : "Sun 27 Sep  02:13"
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 825.346435546875,
+      "afterY" : 110.3507080078125,
+      "beforeX" : 825.346435546875,
+      "beforeY" : 110.3507080078125,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790450004-734",
+    "physicalTap" : {
+      "durationSec" : 0.048982977867126465,
+      "globalCGX" : 3016.2369188608936,
+      "globalCGY" : 162.74685368038163,
+      "movementPt" : 0,
+      "rawX" : 3864,
+      "rawY" : 6
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T19:13:24Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXMenuBarItem []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Control Center",
+      "descriptionText" : "Clock",
+      "elementFrame" : [
+        2940,
+        161,
+        124,
+        22
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 508,
+      "role" : "AXMenuBarItem",
+      "subrole" : "AXMenuExtra",
+      "supportedActions" : [
+        "AXPress",
+        "AXCancel"
+      ],
+      "value" : "Sun 27 Sep  02:13"
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 825.346435546875,
+      "afterY" : 110.3507080078125,
+      "beforeX" : 825.346435546875,
+      "beforeY" : 110.3507080078125,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790450006-644",
+    "physicalTap" : {
+      "durationSec" : 0.048602938652038574,
+      "globalCGX" : 2990.387417661623,
+      "globalCGY" : 168.8747958859979,
+      "movementPt" : 0,
+      "rawX" : 3784,
+      "rawY" : 32
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T19:13:26Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXMenuBarItem []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Finder",
+      "elementFrame" : [
+        2637,
+        299,
+        15,
+        133
+      ],
+      "pid" : 511,
+      "role" : "AXButton",
+      "subrole" : "AXDecrementPage",
+      "supportedActions" : [
+        "AXPress"
+      ]
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 1109.9671630859375,
+      "afterY" : 405.9154052734375,
+      "beforeX" : 1109.9671630859375,
+      "beforeY" : 405.9154052734375,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790450233-638",
+    "physicalTap" : {
+      "durationSec" : 0.07781708240509033,
+      "globalCGX" : 2639.894564691125,
+      "globalCGY" : 377.1258822438348,
+      "movementPt" : 0,
+      "rawX" : 2696,
+      "rawY" : 923
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T19:17:13Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXButton []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Safari",
+      "descriptionText" : "customizations",
+      "elementFrame" : [
+        3020,
+        1005,
+        32,
+        25.5
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 504,
+      "role" : "AXButton",
+      "supportedActions" : [
+        "AXPress"
+      ]
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 1400.529052734375,
+      "afterY" : 584.3665161132812,
+      "beforeX" : 1400.529052734375,
+      "beforeY" : 584.3665161132812,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790450247-492",
+    "physicalTap" : {
+      "durationSec" : 0.06315302848815918,
+      "globalCGX" : 3024.8128312029694,
+      "globalCGY" : 1020.4312295657098,
+      "movementPt" : 0,
+      "rawX" : 3868,
+      "rawY" : 3696
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T19:17:27Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXButton []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Safari",
+      "descriptionText" : "customizations",
+      "elementFrame" : [
+        3020,
+        1005,
+        32,
+        25.5
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 504,
+      "role" : "AXButton",
+      "supportedActions" : [
+        "AXPress"
+      ]
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 1400.529052734375,
+      "afterY" : 584.3665161132812,
+      "beforeX" : 1400.529052734375,
+      "beforeY" : 584.3665161132812,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790450249-362",
+    "physicalTap" : {
+      "durationSec" : 0.07071900367736816,
+      "globalCGX" : 3046.7140716363965,
+      "globalCGY" : 1006.8780285648171,
+      "movementPt" : 0,
+      "rawX" : 3936,
+      "rawY" : 3638
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T19:17:29Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXButton []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Safari",
+      "descriptionText" : "customizations",
+      "elementFrame" : [
+        3020,
+        1005,
+        32,
+        25.5
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 504,
+      "role" : "AXButton",
+      "supportedActions" : [
+        "AXPress"
+      ]
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 1400.529052734375,
+      "afterY" : 584.3665161132812,
+      "beforeX" : 1400.529052734375,
+      "beforeY" : 584.3665161132812,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790450249-838",
+    "physicalTap" : {
+      "durationSec" : 0.06827497482299805,
+      "globalCGX" : 3051.9672382196272,
+      "globalCGY" : 1015.461236650775,
+      "movementPt" : 0,
+      "rawX" : 3952,
+      "rawY" : 3675
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T19:17:30Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXButton []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Safari",
+      "descriptionText" : "customizations",
+      "elementFrame" : [
+        3020,
+        1005,
+        32,
+        25.5
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 504,
+      "role" : "AXButton",
+      "supportedActions" : [
+        "AXPress"
+      ]
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 1400.529052734375,
+      "afterY" : 584.3665161132812,
+      "beforeX" : 1400.529052734375,
+      "beforeY" : 584.3665161132812,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790450257-910",
+    "physicalTap" : {
+      "durationSec" : 0.08225500583648682,
+      "globalCGX" : 3051.9672382196272,
+      "globalCGY" : 1015.461236650775,
+      "movementPt" : 0,
+      "rawX" : 3952,
+      "rawY" : 3675
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T19:17:37Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXButton []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Safari",
+      "descriptionText" : "customizations",
+      "elementFrame" : [
+        3020,
+        1005,
+        32,
+        25.5
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 504,
+      "role" : "AXButton",
+      "supportedActions" : [
+        "AXPress"
+      ]
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 1400.529052734375,
+      "afterY" : 584.3665161132812,
+      "beforeX" : 1400.529052734375,
+      "beforeY" : 584.3665161132812,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790450258-169",
+    "physicalTap" : {
+      "durationSec" : 0.0993720293045044,
+      "globalCGX" : 3050.7570429349907,
+      "globalCGY" : 1025.4602123198067,
+      "movementPt" : 0,
+      "rawX" : 3948,
+      "rawY" : 3718
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T19:17:38Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXButton []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Safari",
+      "descriptionText" : "customizations",
+      "elementFrame" : [
+        3020,
+        1005,
+        32,
+        25.5
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 504,
+      "role" : "AXButton",
+      "supportedActions" : [
+        "AXPress"
+      ]
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 1400.529052734375,
+      "afterY" : 584.3665161132812,
+      "beforeX" : 1400.529052734375,
+      "beforeY" : 584.3665161132812,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790450267-822",
+    "physicalTap" : {
+      "durationSec" : 0.09992992877960205,
+      "globalCGX" : 3049.345587768259,
+      "globalCGY" : 1011.7507224494478,
+      "movementPt" : 0,
+      "rawX" : 3944,
+      "rawY" : 3659
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T19:17:47Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXButton []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Safari",
+      "descriptionText" : "customizations",
+      "elementFrame" : [
+        3020,
+        1005,
+        32,
+        25.5
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 504,
+      "role" : "AXButton",
+      "supportedActions" : [
+        "AXPress"
+      ]
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 1400.529052734375,
+      "afterY" : 584.3665161132812,
+      "beforeX" : 1400.529052734375,
+      "beforeY" : 584.3665161132812,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790450268-210",
+    "physicalTap" : {
+      "durationSec" : 0.20621800422668457,
+      "globalCGX" : 3044.196997398274,
+      "globalCGY" : 1015.4866190065065,
+      "movementPt" : 0,
+      "rawX" : 3928,
+      "rawY" : 3675
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T19:17:48Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXButton []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Control Center",
+      "descriptionText" : "Clock",
+      "elementFrame" : [
+        2940,
+        161,
+        124,
+        22
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 508,
+      "role" : "AXMenuBarItem",
+      "subrole" : "AXMenuExtra",
+      "supportedActions" : [
+        "AXPress",
+        "AXCancel"
+      ],
+      "value" : "Sun 27 Sep  02:17"
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 1400.529052734375,
+      "afterY" : 584.3665161132812,
+      "beforeX" : 1400.529052734375,
+      "beforeY" : 584.3665161132812,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790450270-937",
+    "physicalTap" : {
+      "durationSec" : 0.042634010314941406,
+      "globalCGX" : 3049.8961236034975,
+      "globalCGY" : 161.2422478522477,
+      "movementPt" : 0,
+      "rawX" : 3968,
+      "rawY" : 0
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T19:17:50Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXMenuBarItem []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Safari",
+      "descriptionText" : "customizations",
+      "elementFrame" : [
+        3020,
+        1005,
+        32,
+        25.5
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 504,
+      "role" : "AXButton",
+      "supportedActions" : [
+        "AXPress"
+      ]
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 1400.529052734375,
+      "afterY" : 584.3665161132812,
+      "beforeX" : 1400.529052734375,
+      "beforeY" : 584.3665161132812,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790450271-834",
+    "physicalTap" : {
+      "durationSec" : 0.11472594738006592,
+      "globalCGX" : 3051.913963544955,
+      "globalCGY" : 1009.1854663609364,
+      "movementPt" : 0,
+      "rawX" : 3952,
+      "rawY" : 3648
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T19:17:51Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXButton []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Safari",
+      "descriptionText" : "customizations",
+      "elementFrame" : [
+        3020,
+        1005,
+        32,
+        25.5
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 504,
+      "role" : "AXButton",
+      "supportedActions" : [
+        "AXPress"
+      ]
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 395.9190673828125,
+      "afterY" : 381.05682373046875,
+      "beforeX" : 395.9190673828125,
+      "beforeY" : 381.05682373046875,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790450302-215",
+    "physicalTap" : {
+      "durationSec" : 0.2618269920349121,
+      "globalCGX" : 3050.5991920470733,
+      "globalCGY" : 1006.8653373869514,
+      "movementPt" : 0,
+      "rawX" : 3948,
+      "rawY" : 3638
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T19:18:22Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXButton []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Safari",
+      "descriptionText" : "customizations",
+      "elementFrame" : [
+        3020,
+        1005,
+        32,
+        25.5
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 504,
+      "role" : "AXButton",
+      "supportedActions" : [
+        "AXPress"
+      ]
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 395.9190673828125,
+      "afterY" : 381.05682373046875,
+      "beforeX" : 395.9190673828125,
+      "beforeY" : 381.05682373046875,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790450309-667",
+    "physicalTap" : {
+      "durationSec" : 0.06928110122680664,
+      "globalCGX" : 3028.6249455779844,
+      "globalCGY" : 1011.8184087313984,
+      "movementPt" : 0,
+      "rawX" : 3880,
+      "rawY" : 3659
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T19:18:29Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXButton []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Safari",
+      "descriptionText" : "customizations",
+      "elementFrame" : [
+        3020,
+        1005,
+        32,
+        25.5
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 504,
+      "role" : "AXButton",
+      "supportedActions" : [
+        "AXPress"
+      ]
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 1131.1497802734375,
+      "afterY" : 50.2733154296875,
+      "beforeX" : 1131.1497802734375,
+      "beforeY" : 50.2733154296875,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790450441-909",
+    "physicalTap" : {
+      "durationSec" : 0.03544890880584717,
+      "globalCGX" : 3041.543776769323,
+      "globalCGY" : 1008.0571298186082,
+      "movementPt" : 0,
+      "rawX" : 3920,
+      "rawY" : 3643
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T19:20:41Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXButton []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Safari",
+      "descriptionText" : "customizations",
+      "elementFrame" : [
+        3020,
+        1005,
+        32,
+        25.5
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 504,
+      "role" : "AXButton",
+      "supportedActions" : [
+        "AXPress"
+      ]
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 1131.1497802734375,
+      "afterY" : 49.816162109375,
+      "beforeX" : 1131.1497802734375,
+      "beforeY" : 49.816162109375,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790450443-884",
+    "physicalTap" : {
+      "durationSec" : 0.05102193355560303,
+      "globalCGX" : 3046.74564181398,
+      "globalCGY" : 1010.5970035513881,
+      "movementPt" : 0,
+      "rawX" : 3936,
+      "rawY" : 3654
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T19:20:43Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXButton []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Safari",
+      "descriptionText" : "customizations",
+      "elementFrame" : [
+        3020,
+        1005,
+        32,
+        25.5
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 504,
+      "role" : "AXButton",
+      "supportedActions" : [
+        "AXPress"
+      ]
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 1131.1497802734375,
+      "afterY" : 49.816162109375,
+      "beforeX" : 1131.1497802734375,
+      "beforeY" : 49.816162109375,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790450443-500",
+    "physicalTap" : {
+      "durationSec" : 0.05009496212005615,
+      "globalCGX" : 3046.796943352553,
+      "globalCGY" : 1016.6403379045661,
+      "movementPt" : 0,
+      "rawX" : 3936,
+      "rawY" : 3680
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T19:20:43Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXButton []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Safari",
+      "descriptionText" : "customizations",
+      "elementFrame" : [
+        3020,
+        1005,
+        32,
+        25.5
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 504,
+      "role" : "AXButton",
+      "supportedActions" : [
+        "AXPress"
+      ]
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 1131.1497802734375,
+      "afterY" : 49.816162109375,
+      "beforeX" : 1131.1497802734375,
+      "beforeY" : 49.816162109375,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790450446-945",
+    "physicalTap" : {
+      "durationSec" : 0.0519639253616333,
+      "globalCGX" : 3050.7254727574073,
+      "globalCGY" : 1021.7412373332356,
+      "movementPt" : 0,
+      "rawX" : 3948,
+      "rawY" : 3702
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T19:20:46Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXButton []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Safari",
+      "descriptionText" : "customizations",
+      "elementFrame" : [
+        3020,
+        1005,
+        32,
+        25.5
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 504,
+      "role" : "AXButton",
+      "supportedActions" : [
+        "AXPress"
+      ]
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 1131.1497802734375,
+      "afterY" : 49.816162109375,
+      "beforeX" : 1131.1497802734375,
+      "beforeY" : 49.816162109375,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790450448-962",
+    "physicalTap" : {
+      "durationSec" : 0.06999802589416504,
+      "globalCGX" : 3048.176828341701,
+      "globalCGY" : 1026.6308527883539,
+      "movementPt" : 0,
+      "rawX" : 3940,
+      "rawY" : 3723
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T19:20:48Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXButton []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Safari",
+      "descriptionText" : "customizations",
+      "elementFrame" : [
+        3020,
+        1005,
+        32,
+        25.5
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 504,
+      "role" : "AXButton",
+      "supportedActions" : [
+        "AXPress"
+      ]
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 1131.1497802734375,
+      "afterY" : 49.816162109375,
+      "beforeX" : 1131.1497802734375,
+      "beforeY" : 49.816162109375,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790450448-848",
+    "physicalTap" : {
+      "durationSec" : 0.06718897819519043,
+      "globalCGX" : 3040.3651516622695,
+      "globalCGY" : 1021.775080474211,
+      "movementPt" : 0,
+      "rawX" : 3916,
+      "rawY" : 3702
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T19:20:49Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXButton []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Safari",
+      "descriptionText" : "customizations",
+      "elementFrame" : [
+        3020,
+        1005,
+        32,
+        25.5
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 504,
+      "role" : "AXButton",
+      "supportedActions" : [
+        "AXPress"
+      ]
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 1131.1497802734375,
+      "afterY" : 49.816162109375,
+      "beforeX" : 1131.1497802734375,
+      "beforeY" : 49.816162109375,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790450453-458",
+    "physicalTap" : {
+      "durationSec" : 0.08219802379608154,
+      "globalCGX" : 3051.9356680420437,
+      "globalCGY" : 1011.742261664204,
+      "movementPt" : 0,
+      "rawX" : 3952,
+      "rawY" : 3659
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T19:20:53Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXButton []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Safari",
+      "descriptionText" : "customizations",
+      "elementFrame" : [
+        3020,
+        1005,
+        32,
+        25.5
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 504,
+      "role" : "AXButton",
+      "supportedActions" : [
+        "AXPress"
+      ]
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 1131.1497802734375,
+      "afterY" : 49.816162109375,
+      "beforeX" : 1131.1497802734375,
+      "beforeY" : 49.816162109375,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790450455-371",
+    "physicalTap" : {
+      "durationSec" : 0.08429408073425293,
+      "globalCGX" : 3051.9672382196272,
+      "globalCGY" : 1015.461236650775,
+      "movementPt" : 0,
+      "rawX" : 3952,
+      "rawY" : 3675
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T19:20:55Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXButton []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Safari",
+      "descriptionText" : "customizations",
+      "elementFrame" : [
+        3020,
+        1005,
+        32,
+        25.5
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 504,
+      "role" : "AXButton",
+      "supportedActions" : [
+        "AXPress"
+      ]
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 1131.1497802734375,
+      "afterY" : 49.816162109375,
+      "beforeX" : 1131.1497802734375,
+      "beforeY" : 49.816162109375,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790450460-334",
+    "physicalTap" : {
+      "durationSec" : 0.05276000499725342,
+      "globalCGX" : 3051.925802361549,
+      "globalCGY" : 1010.5800819809004,
+      "movementPt" : 0,
+      "rawX" : 3952,
+      "rawY" : 3654
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T19:21:00Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXButton []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Safari",
+      "descriptionText" : "customizations",
+      "elementFrame" : [
+        3020,
+        1005,
+        32,
+        25.5
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 504,
+      "role" : "AXButton",
+      "supportedActions" : [
+        "AXPress"
+      ]
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 1131.1497802734375,
+      "afterY" : 49.816162109375,
+      "beforeX" : 1131.1497802734375,
+      "beforeY" : 49.816162109375,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790450461-759",
+    "physicalTap" : {
+      "durationSec" : 0.05062699317932129,
+      "globalCGX" : 3048.009111773289,
+      "globalCGY" : 1006.8737981721953,
+      "movementPt" : 0,
+      "rawX" : 3940,
+      "rawY" : 3638
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T19:21:01Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXButton []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Safari",
+      "descriptionText" : "customizations",
+      "elementFrame" : [
+        3020,
+        1005,
+        32,
+        25.5
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 504,
+      "role" : "AXButton",
+      "supportedActions" : [
+        "AXPress"
+      ]
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 1131.1497802734375,
+      "afterY" : 49.816162109375,
+      "beforeX" : 1131.1497802734375,
+      "beforeY" : 49.816162109375,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790450461-827",
+    "physicalTap" : {
+      "durationSec" : 0.03191399574279785,
+      "globalCGX" : 3051.8823933673716,
+      "globalCGY" : 1005.4664913743653,
+      "movementPt" : 0,
+      "rawX" : 3952,
+      "rawY" : 3632
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T19:21:01Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXButton []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Safari",
+      "descriptionText" : "customizations",
+      "elementFrame" : [
+        3020,
+        1005,
+        32,
+        25.5
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 504,
+      "role" : "AXButton",
+      "supportedActions" : [
+        "AXPress"
+      ]
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 1131.1497802734375,
+      "afterY" : 49.816162109375,
+      "beforeX" : 1131.1497802734375,
+      "beforeY" : 49.816162109375,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790450463-824",
+    "physicalTap" : {
+      "durationSec" : 0.0523679256439209,
+      "globalCGX" : 3050.672198082735,
+      "globalCGY" : 1015.465467043397,
+      "movementPt" : 0,
+      "rawX" : 3948,
+      "rawY" : 3675
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T19:21:03Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXButton []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Safari",
+      "descriptionText" : "customizations",
+      "elementFrame" : [
+        3020,
+        1005,
+        32,
+        25.5
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 504,
+      "role" : "AXButton",
+      "supportedActions" : [
+        "AXPress"
+      ]
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 1131.1497802734375,
+      "afterY" : 49.816162109375,
+      "beforeX" : 1131.1497802734375,
+      "beforeY" : 49.816162109375,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790450464-585",
+    "physicalTap" : {
+      "durationSec" : 0.05202305316925049,
+      "globalCGX" : 3051.9455337225386,
+      "globalCGY" : 1012.9044413475074,
+      "movementPt" : 0,
+      "rawX" : 3952,
+      "rawY" : 3664
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T19:21:04Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXButton []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Safari",
+      "descriptionText" : "customizations",
+      "elementFrame" : [
+        3020,
+        1005,
+        32,
+        25.5
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 504,
+      "role" : "AXButton",
+      "supportedActions" : [
+        "AXPress"
+      ]
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 1131.1497802734375,
+      "afterY" : 49.816162109375,
+      "beforeX" : 1131.1497802734375,
+      "beforeY" : 49.816162109375,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790450472-709",
+    "physicalTap" : {
+      "durationSec" : 0.06540203094482422,
+      "globalCGX" : 3051.9771039001216,
+      "globalCGY" : 1016.6234163340785,
+      "movementPt" : 0,
+      "rawX" : 3952,
+      "rawY" : 3680
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T19:21:12Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXButton []"
   }
 ]

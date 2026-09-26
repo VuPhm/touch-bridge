@@ -55,19 +55,42 @@ public struct TouchSample: CustomStringConvertible {
 }
 
 public final class TouchFrameAggregator {
-    // Current stable contact state (Slot #0)
-    private var isContactDown: Bool = false
-    private var lastRawX: Int = 0
-    private var lastRawY: Int = 0
-    private var hasObservedCoordinates: Bool = false
-    private var activeContactID: Int = 0
+    // Multi-slot contact state tracking (supports up to 6 fingers on USB2IIC_CTP_CONTROL)
+    public struct ContactSlot {
+        public let slotIndex: Int
+        public var isContactDown: Bool = false
+        public var lastRawX: Int = 0
+        public var lastRawY: Int = 0
+        public var hasObservedCoordinates: Bool = false
+        public var activeContactID: Int = 0
+        
+        // Pending elements for the current report packet
+        public var pendingTipSwitch: Bool? = nil
+        public var pendingRawX: Int? = nil
+        public var pendingRawY: Int? = nil
+        public var pendingContactID: Int? = nil
+        
+        public init(slotIndex: Int) {
+            self.slotIndex = slotIndex
+            self.activeContactID = slotIndex
+        }
+        
+        public mutating func reset() {
+            isContactDown = false
+            lastRawX = 0
+            lastRawY = 0
+            hasObservedCoordinates = false
+            pendingTipSwitch = nil
+            pendingRawX = nil
+            pendingRawY = nil
+            pendingContactID = nil
+        }
+    }
     
-    // In-flight report accumulation (grouped by hardware timestamp)
+    private var slots: [ContactSlot] = (0..<6).map { ContactSlot(slotIndex: $0) }
+    
+    // In-flight report timestamp grouping
     private var pendingTimestamp: UInt64 = 0
-    private var pendingTipSwitch: Bool? = nil
-    private var pendingRawX: Int? = nil
-    private var pendingRawY: Int? = nil
-    private var pendingContactID: Int? = nil
     private var isFlushScheduled: Bool = false
     
     // Device bounds for normalization
@@ -99,14 +122,20 @@ public final class TouchFrameAggregator {
     }
     
     public func reset() {
-        isContactDown = false
-        hasObservedCoordinates = false
-        pendingTipSwitch = nil
-        pendingRawX = nil
-        pendingRawY = nil
-        pendingContactID = nil
+        for i in 0..<slots.count {
+            slots[i].reset()
+        }
         pendingTimestamp = 0
         isFlushScheduled = false
+    }
+    
+    // Backwards-compatible accessors for single-contact introspection
+    public var isContactDown: Bool {
+        slots.contains(where: { $0.isContactDown })
+    }
+    
+    public var activeContactCount: Int {
+        slots.filter { $0.isContactDown }.count
     }
     
     private func emitSample(_ sample: TouchSample) {
@@ -131,31 +160,43 @@ public final class TouchFrameAggregator {
         return (max(0.0, min(1.0, nx)), max(0.0, min(1.0, ny)))
     }
     
+    /// Maps an IOHIDElement cookie to its corresponding finger slot (0..5).
+    /// Defaults to slot 0 if cookie is 0 (e.g. synthetic test harnesses).
+    public static func slotForCookie(_ cookie: UInt32) -> Int {
+        if cookie >= 0x0010 && cookie <= 0x0015 {
+            return Int(cookie - 0x0010)
+        } else if cookie >= 0x0016 && cookie <= 0x002D {
+            return Int((cookie - 0x0016) / 4)
+        }
+        return 0
+    }
+    
     /// Feeds an incoming raw element update from IOHIDValueCallback.
     /// Elements with identical machTime belong to the same hardware report packet.
-    public func handleElement(usagePage: UInt32, usage: UInt32, value: Int, machTime: UInt64) {
+    public func handleElement(usagePage: UInt32, usage: UInt32, value: Int, machTime: UInt64, cookie: UInt32 = 0) {
         // If a new report timestamp arrives while a previous report is still pending, flush immediately.
         if pendingTimestamp != 0 && machTime != pendingTimestamp {
             flushPendingFrame()
         }
         
         pendingTimestamp = machTime
+        let slotIdx = max(0, min(slots.count - 1, TouchFrameAggregator.slotForCookie(cookie)))
         
         if usagePage == 0x0D { // Digitizer
             switch usage {
             case 0x42: // Tip Switch (Touch Down / Up)
-                pendingTipSwitch = (value != 0)
+                slots[slotIdx].pendingTipSwitch = (value != 0)
             case 0x51: // Contact Identifier
-                pendingContactID = value
+                slots[slotIdx].pendingContactID = value
             default:
                 break
             }
         } else if usagePage == 0x01 { // Generic Desktop
             switch usage {
             case 0x30: // Absolute X
-                pendingRawX = value
+                slots[slotIdx].pendingRawX = value
             case 0x31: // Absolute Y
-                pendingRawY = value
+                slots[slotIdx].pendingRawY = value
             default:
                 break
             }
@@ -170,7 +211,7 @@ public final class TouchFrameAggregator {
         }
     }
     
-    /// Flushes the pending accumulated elements for the current report timestamp.
+    /// Flushes the pending accumulated elements across all finger slots for the current report timestamp.
     public func flushPendingFrame() {
         isFlushScheduled = false
         guard pendingTimestamp != 0 else { return }
@@ -178,99 +219,101 @@ public final class TouchFrameAggregator {
         let reportTime = pendingTimestamp
         let elapsed = elapsedSeconds(for: reportTime)
         
-        if let newX = pendingRawX {
-            lastRawX = newX
-            hasObservedCoordinates = true
-        }
-        if let newY = pendingRawY {
-            lastRawY = newY
-            hasObservedCoordinates = true
-        }
-        if let cID = pendingContactID {
-            activeContactID = cID
-        }
-        
-        let (normX, normY) = normalize(rawX: lastRawX, rawY: lastRawY)
-        
-        // Process Tip Switch state changes
-        if let tipDown = pendingTipSwitch {
-            if tipDown && !isContactDown {
-                // TOUCH DOWN: Only emit when coordinates have arrived for this contact
-                isContactDown = true
-                if hasObservedCoordinates {
+        for i in 0..<slots.count {
+            if let newX = slots[i].pendingRawX {
+                slots[i].lastRawX = newX
+                slots[i].hasObservedCoordinates = true
+            }
+            if let newY = slots[i].pendingRawY {
+                slots[i].lastRawY = newY
+                slots[i].hasObservedCoordinates = true
+            }
+            if let cID = slots[i].pendingContactID {
+                slots[i].activeContactID = cID
+            }
+            
+            let (normX, normY) = normalize(rawX: slots[i].lastRawX, rawY: slots[i].lastRawY)
+            
+            // Process Tip Switch state changes for this slot
+            if let tipDown = slots[i].pendingTipSwitch {
+                if tipDown && !slots[i].isContactDown {
+                    // TOUCH DOWN: Only emit when coordinates have arrived for this contact
+                    slots[i].isContactDown = true
+                    if slots[i].hasObservedCoordinates {
+                        let sample = TouchSample(
+                            phase: .down,
+                            rawX: slots[i].lastRawX,
+                            rawY: slots[i].lastRawY,
+                            normX: normX,
+                            normY: normY,
+                            timestamp: reportTime,
+                            elapsedSeconds: elapsed,
+                            slot: i,
+                            contactID: slots[i].activeContactID
+                        )
+                        emitSample(sample)
+                    }
+                } else if !tipDown && slots[i].isContactDown {
+                    // TOUCH UP
+                    slots[i].isContactDown = false
                     let sample = TouchSample(
-                        phase: .down,
-                        rawX: lastRawX,
-                        rawY: lastRawY,
+                        phase: .up,
+                        rawX: slots[i].lastRawX,
+                        rawY: slots[i].lastRawY,
                         normX: normX,
                         normY: normY,
                         timestamp: reportTime,
                         elapsedSeconds: elapsed,
-                        slot: 0,
-                        contactID: activeContactID
+                        slot: i,
+                        contactID: slots[i].activeContactID
                     )
                     emitSample(sample)
+                    // Clean coordinate reset per-slot on touch-up
+                    slots[i].hasObservedCoordinates = false
+                    slots[i].lastRawX = 0
+                    slots[i].lastRawY = 0
+                } else if tipDown && slots[i].isContactDown {
+                    // Continued touch with potential move
+                    if slots[i].pendingRawX != nil || slots[i].pendingRawY != nil {
+                        let sample = TouchSample(
+                            phase: .move,
+                            rawX: slots[i].lastRawX,
+                            rawY: slots[i].lastRawY,
+                            normX: normX,
+                            normY: normY,
+                            timestamp: reportTime,
+                            elapsedSeconds: elapsed,
+                            slot: i,
+                            contactID: slots[i].activeContactID
+                        )
+                        emitSample(sample)
+                    }
                 }
-            } else if !tipDown && isContactDown {
-                // TOUCH UP
-                isContactDown = false
-                let sample = TouchSample(
-                    phase: .up,
-                    rawX: lastRawX,
-                    rawY: lastRawY,
-                    normX: normX,
-                    normY: normY,
-                    timestamp: reportTime,
-                    elapsedSeconds: elapsed,
-                    slot: 0,
-                    contactID: activeContactID
-                )
-                emitSample(sample)
-                // Inter-gesture clean start (P3-03 Section 8):
-                // Clear coordinate cache so subsequent contacts never inherit stale coordinates.
-                hasObservedCoordinates = false
-                lastRawX = 0
-                lastRawY = 0
-            } else if tipDown && isContactDown {
-                // Continued touch with potential move
-                if pendingRawX != nil || pendingRawY != nil {
+            } else if slots[i].isContactDown {
+                // Continued touch position update without tip-switch change
+                if slots[i].pendingRawX != nil || slots[i].pendingRawY != nil {
                     let sample = TouchSample(
                         phase: .move,
-                        rawX: lastRawX,
-                        rawY: lastRawY,
+                        rawX: slots[i].lastRawX,
+                        rawY: slots[i].lastRawY,
                         normX: normX,
                         normY: normY,
                         timestamp: reportTime,
                         elapsedSeconds: elapsed,
-                        slot: 0,
-                        contactID: activeContactID
+                        slot: i,
+                        contactID: slots[i].activeContactID
                     )
                     emitSample(sample)
                 }
             }
-        } else {
-            // No tip switch change in this report, but X/Y updated while down
-            if isContactDown && (pendingRawX != nil || pendingRawY != nil) {
-                let sample = TouchSample(
-                    phase: .move,
-                    rawX: lastRawX,
-                    rawY: lastRawY,
-                    normX: normX,
-                    normY: normY,
-                    timestamp: reportTime,
-                    elapsedSeconds: elapsed,
-                    slot: 0,
-                    contactID: activeContactID
-                )
-                emitSample(sample)
-            }
+            
+            // Clear slot pending elements
+            slots[i].pendingTipSwitch = nil
+            slots[i].pendingRawX = nil
+            slots[i].pendingRawY = nil
+            slots[i].pendingContactID = nil
         }
         
-        // Clear pending report fields
-        pendingTipSwitch = nil
-        pendingRawX = nil
-        pendingRawY = nil
-        pendingContactID = nil
         pendingTimestamp = 0
     }
 }

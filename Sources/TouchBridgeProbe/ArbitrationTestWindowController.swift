@@ -467,8 +467,13 @@ public final class ArbitrationTestWindowController: NSObject, NSWindowDelegate, 
     public func updateLiveTelemetry(state: GestureState, movement: Double, duration: Double, context: AXInteractionContext?) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            self.stateLabel.stringValue = "Gesture State: \(state.description)"
-            self.movementLabel.stringValue = "Movement: \(String(format: "%.1f", movement)) pt | Thresh: \(GestureArbitrationConfig.panThresholdPt) pt | Dur: \(String(format: "%.3f", duration))s"
+            let contacts = self.runtime.recognizer.activeContacts.count
+            let seized = self.runtime.device.isExclusivelySeized ? "SEIZED" : "SHARED"
+            let vel = self.runtime.recognizer.activeSession?.filteredVelocity ?? .zero
+            let speed = hypot(vel.dx, vel.dy)
+            
+            self.stateLabel.stringValue = "State: \(state.description) [\(contacts) Contact\(contacts == 1 ? "" : "s") | \(seized)]"
+            self.movementLabel.stringValue = "Mov: \(String(format: "%.1f", movement)) pt | Spd: \(String(format: "%.1f", speed)) pt/s | Dur: \(String(format: "%.3f", duration))s"
             
             if let ctx = context {
                 self.elementLabel.stringValue = "AX Hit: [\(ctx.applicationName)] \(ctx.hitNode.role) (ScrollArea: \(ctx.scrollCapability.hasScrollArea ? "YES" : "NO"))"

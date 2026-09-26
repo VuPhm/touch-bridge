@@ -18,8 +18,9 @@ func printHelp() {
       --inspect-only      Enumerate HID and Display interfaces, print full technical metadata, then exit.
       --test-timestamps   Empirically validate real HID frame timestamps across gestures (P1.5 requirement 1).
       --test-arbitration  Launch P3-03 Interaction Router & Gesture Arbitration Testbed Window.
-      --test-runtime      Run automated 28-test runtime and gesture arbitration validation suite.
-      --verify-arbitration Run live physical tap-vs-pan arbitration validation across all 4 scenarios.
+      --test-runtime      Run automated 29-test runtime and gesture arbitration validation suite.
+      --live-diagnostics  Run real-time P3-03R live diagnostic telemetry stream (contacts, speed, backend, seize).
+      --verify-arbitration Run live physical tap-vs-pan arbitration validation across all scenarios.
       --verify-gating     Run live hardware Enable/Disable gating verification.
       --verify-hotplug    Run live hardware USB hot-plug disconnect/reconnect verification.
       --duration <sec>    In CLI modes, run for specified seconds then exit.
@@ -343,6 +344,17 @@ func main() {
         exit(report.allPassed ? 0 : 1)
     }
     
+    let liveDiagnostics = args.contains("--live-diagnostics") || args.contains("--diagnostics")
+    if liveDiagnostics {
+        var dur: Double? = nil
+        if let dIdx = args.firstIndex(of: "--duration"), dIdx + 1 < args.count, let d = Double(args[dIdx + 1]) {
+            dur = d
+        }
+        LiveDiagnosticsRunner.shared.start(duration: dur)
+        CFRunLoopRun()
+        return
+    }
+    
     let verifyGating = args.contains("--verify-gating")
     if verifyGating {
         var dur: Double = 45.0
@@ -504,6 +516,13 @@ func main() {
                 print("        Tip Switch: Report ID \(tip.reportID), Range [\(tip.logicalMin) .. \(tip.logicalMax)]")
             }
             print("        Descriptor Collections: \(dev.fingerCollectionsCount) Finger collections (multitouch unverified at runtime)")
+            if args.contains("--dump-elements") {
+                print("        --- All Elements (\(dev.elements.count)): ---")
+                for (idx, elem) in dev.elements.enumerated() {
+                    let pStr = (elem.parentUsagePage != nil) ? " Parent:[0x\(String(format: "%02X", elem.parentUsagePage!)):0x\(String(format: "%02X", elem.parentUsage!))]" : ""
+                    print("          [\(idx)] Cookie:0x\(String(format: "%04X", UInt32(elem.cookie))) Type:\(elem.typeName) Page:0x\(String(format: "%02X", elem.usagePage)) (\(elem.usagePageName)) Usage:0x\(String(format: "%02X", elem.usage)) (\(elem.usageName)) rID:\(elem.reportID) [\(elem.logicalMin)..\(elem.logicalMax)]\(pStr)")
+                }
+            }
         } else {
             print("    [!] No touchscreen HID controller found.")
         }
