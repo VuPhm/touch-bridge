@@ -18,6 +18,28 @@ public struct TouchSample: CustomStringConvertible {
     public let slot: Int
     public let contactID: Int
     
+    public init(
+        phase: TouchPhase,
+        rawX: Int = 2048,
+        rawY: Int = 2048,
+        normX: Double = 0.5,
+        normY: Double = 0.5,
+        timestamp: UInt64 = mach_absolute_time(),
+        elapsedSeconds: Double = 0.0,
+        slot: Int = 0,
+        contactID: Int = 0
+    ) {
+        self.phase = phase
+        self.rawX = rawX
+        self.rawY = rawY
+        self.normX = normX
+        self.normY = normY
+        self.timestamp = timestamp
+        self.elapsedSeconds = elapsedSeconds
+        self.slot = slot
+        self.contactID = contactID
+    }
+    
     public var rawPoint: RawHIDPoint {
         RawHIDPoint(x: rawX, y: rawY)
     }
@@ -60,6 +82,7 @@ public final class TouchFrameAggregator {
     
     // Callback
     private let onSample: (TouchSample) -> Void
+    public var onSampleForwarder: ((TouchSample) -> Void)? = nil
     
     public init(
         logMinX: Int = 0, logMaxX: Int = 4096,
@@ -73,6 +96,25 @@ public final class TouchFrameAggregator {
         self.onSample = onSample
         self.startMachTime = mach_absolute_time()
         mach_timebase_info(&self.timebaseInfo)
+    }
+    
+    public func reset() {
+        isContactDown = false
+        hasObservedCoordinates = false
+        pendingTipSwitch = nil
+        pendingRawX = nil
+        pendingRawY = nil
+        pendingContactID = nil
+        pendingTimestamp = 0
+        isFlushScheduled = false
+    }
+    
+    private func emitSample(_ sample: TouchSample) {
+        if let forwarder = onSampleForwarder {
+            forwarder(sample)
+        } else {
+            onSample(sample)
+        }
     }
     
     private func elapsedSeconds(for machTime: UInt64) -> Double {
@@ -167,7 +209,7 @@ public final class TouchFrameAggregator {
                         slot: 0,
                         contactID: activeContactID
                     )
-                    onSample(sample)
+                    emitSample(sample)
                 }
             } else if !tipDown && isContactDown {
                 // TOUCH UP
@@ -183,7 +225,12 @@ public final class TouchFrameAggregator {
                     slot: 0,
                     contactID: activeContactID
                 )
-                onSample(sample)
+                emitSample(sample)
+                // Inter-gesture clean start (P3-03 Section 8):
+                // Clear coordinate cache so subsequent contacts never inherit stale coordinates.
+                hasObservedCoordinates = false
+                lastRawX = 0
+                lastRawY = 0
             } else if tipDown && isContactDown {
                 // Continued touch with potential move
                 if pendingRawX != nil || pendingRawY != nil {
@@ -198,7 +245,7 @@ public final class TouchFrameAggregator {
                         slot: 0,
                         contactID: activeContactID
                     )
-                    onSample(sample)
+                    emitSample(sample)
                 }
             }
         } else {
@@ -215,7 +262,7 @@ public final class TouchFrameAggregator {
                     slot: 0,
                     contactID: activeContactID
                 )
-                onSample(sample)
+                emitSample(sample)
             }
         }
         

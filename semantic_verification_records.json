@@ -17065,5 +17065,199 @@
     "testCase" : "Test C: Browser Accessibility (HTML)",
     "timestamp" : "2026-09-25T09:07:41Z",
     "visibleResult" : "Element does not support kAXPressAction (supported: [\"AXShowMenu\", \"AXScrollToVisible\"]). Fallback click prohibited."
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Control Center",
+      "descriptionText" : "Clock",
+      "elementFrame" : [
+        2940,
+        161,
+        124,
+        22
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 508,
+      "role" : "AXMenuBarItem",
+      "subrole" : "AXMenuExtra",
+      "supportedActions" : [
+        "AXPress",
+        "AXCancel"
+      ],
+      "value" : "Sun 27 Sep  01:31"
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 2222.76220703125,
+      "afterY" : 858.869873046875,
+      "beforeX" : 2222.76220703125,
+      "beforeY" : 858.869873046875,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790447462-347",
+    "physicalTap" : {
+      "durationSec" : 0.07093799114227295,
+      "globalCGX" : 3026.6071056365263,
+      "globalCGY" : 163.87519022270976,
+      "movementPt" : 0,
+      "rawX" : 3896,
+      "rawY" : 11
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T18:31:02Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXMenuBarItem []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Control Center",
+      "descriptionText" : "Clock",
+      "elementFrame" : [
+        2940,
+        161,
+        124,
+        22
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 508,
+      "role" : "AXMenuBarItem",
+      "subrole" : "AXMenuExtra",
+      "supportedActions" : [
+        "AXPress",
+        "AXCancel"
+      ],
+      "value" : "Sun 27 Sep  01:31"
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 2222.76220703125,
+      "afterY" : 858.869873046875,
+      "beforeX" : 2222.76220703125,
+      "beforeY" : 858.869873046875,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790447463-155",
+    "physicalTap" : {
+      "durationSec" : 0.06308102607727051,
+      "globalCGX" : 3008.539684075203,
+      "globalCGY" : 171.3723656925587,
+      "movementPt" : 0,
+      "rawX" : 3840,
+      "rawY" : 43
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T18:31:03Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXMenuBarItem []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Control Center",
+      "descriptionText" : "Control Center",
+      "elementFrame" : [
+        2902,
+        161,
+        26,
+        22
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 508,
+      "role" : "AXMenuBarItem",
+      "subrole" : "AXMenuExtra",
+      "supportedActions" : [
+        "AXPress",
+        "AXCancel"
+      ]
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 2222.76220703125,
+      "afterY" : 858.869873046875,
+      "beforeX" : 2222.76220703125,
+      "beforeY" : 858.869873046875,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790447463-375",
+    "physicalTap" : {
+      "durationSec" : 0.06133997440338135,
+      "globalCGX" : 2914.0333242596557,
+      "globalCGY" : 175.40015934052963,
+      "movementPt" : 0,
+      "rawX" : 3548,
+      "rawY" : 59
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T18:31:03Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXMenuBarItem []"
+  },
+  {
+    "axHitTest" : {
+      "applicationName" : "Control Center",
+      "descriptionText" : "Control Center",
+      "elementFrame" : [
+        2902,
+        161,
+        26,
+        22
+      ],
+      "isEnabled" : true,
+      "isFocused" : false,
+      "pid" : 508,
+      "role" : "AXMenuBarItem",
+      "subrole" : "AXMenuExtra",
+      "supportedActions" : [
+        "AXPress",
+        "AXCancel"
+      ]
+    },
+    "classification" : "SEMANTIC_PRESS_SUCCESS",
+    "cursor" : {
+      "afterX" : 2222.76220703125,
+      "afterY" : 858.869873046875,
+      "beforeX" : 2222.76220703125,
+      "beforeY" : 858.869873046875,
+      "deltaPt" : 0,
+      "invariantSatisfied" : true
+    },
+    "id" : "EVD-1790447464-208",
+    "physicalTap" : {
+      "durationSec" : 0.033981919288635254,
+      "globalCGX" : 2916.591834355857,
+      "globalCGY" : 171.67272356871473,
+      "movementPt" : 0,
+      "rawX" : 3556,
+      "rawY" : 43
+    },
+    "semanticAction" : {
+      "axErrorCode" : 0,
+      "axErrorName" : "kAXErrorSuccess (0)",
+      "executed" : true,
+      "requestedAction" : "AXPress"
+    },
+    "testCase" : "TouchBridge Semantic Tap",
+    "timestamp" : "2026-09-26T18:31:04Z",
+    "visibleResult" : "kAXPressAction dispatched successfully to AXMenuBarItem []"
   }
 ]

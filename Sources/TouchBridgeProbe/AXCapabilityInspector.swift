@@ -25,6 +25,26 @@ public struct AXNodeCapability: Codable {
     public var isValueSettable: Bool { settableAttributes.contains(kAXValueAttribute as String) }
     public var isFocusSettable: Bool { settableAttributes.contains(kAXFocusedAttribute as String) }
     public var isSelectedSettable: Bool { settableAttributes.contains(kAXSelectedAttribute as String) }
+    
+    public func toSnapshot(pid: Int32, appName: String) -> AXElementSnapshot {
+        var frame: [Double]? = nil
+        if let p = position, let s = size, p.count > 1, s.count > 1 {
+            frame = [p[0], p[1], s[0], s[1]]
+        }
+        return AXElementSnapshot(
+            pid: pid,
+            applicationName: appName,
+            role: role,
+            subrole: subrole,
+            title: title,
+            descriptionText: descriptionText,
+            value: value,
+            isEnabled: isEnabled,
+            isFocused: isFocused,
+            supportedActions: supportedActions,
+            elementFrame: frame
+        )
+    }
 }
 
 public struct AXScrollCapability: Codable {
@@ -48,12 +68,25 @@ public struct AXCapabilityInspectionResult: Codable {
     public let scrollCapability: AXScrollCapability
 }
 
+/// Direct interaction context holding live AXUIElement references for session lifetime.
+public struct AXInteractionContext {
+    public let pid: Int32
+    public let applicationName: String
+    public let hitElement: AXUIElement
+    public let hitNode: AXNodeCapability
+    public let ancestorChain: [AXNodeCapability]
+    public let scrollAreaElement: AXUIElement?
+    public let scrollBarElement: AXUIElement?
+    public let scrollCapability: AXScrollCapability
+    public let scrollAreaHeight: Double
+}
+
 public final class AXCapabilityInspector {
     public static let shared = AXCapabilityInspector()
     
     private init() {}
     
-    public func inspect(element: AXUIElement, maxAncestors: Int = 4) -> AXCapabilityInspectionResult {
+    public func discoverContext(element: AXUIElement, maxAncestors: Int = 4) -> AXInteractionContext {
         var pid: pid_t = 0
         AXUIElementGetPid(element, &pid)
         let appName = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "PID \(pid)"
@@ -93,19 +126,47 @@ public final class AXCapabilityInspector {
             }
         }
         
-        // Evaluate Scroll Capability
+        if foundScrollAreaElem != nil && foundScrollBarElem == nil {
+            var vsbRef: AnyObject?
+            if AXUIElementCopyAttributeValue(foundScrollAreaElem!, "AXVerticalScrollBar" as CFString, &vsbRef) == .success, let b = vsbRef {
+                foundScrollBarElem = (b as! AXUIElement)
+            }
+        }
+        
         let scrollCap = evaluateScrollCapability(
             hitElement: element,
             scrollAreaElem: foundScrollAreaElem,
             directScrollBarElem: foundScrollBarElem
         )
         
-        return AXCapabilityInspectionResult(
+        var sHeight: Double = 400.0
+        if let sa = foundScrollAreaElem, let sz = getSizeAttr(sa, kAXSizeAttribute), sz.count > 1 {
+            sHeight = sz[1]
+        } else if let sz = hitNode.size, sz.count > 1 {
+            sHeight = sz[1]
+        }
+        
+        return AXInteractionContext(
             pid: pid,
             applicationName: appName,
+            hitElement: element,
             hitNode: hitNode,
             ancestorChain: ancestors,
-            scrollCapability: scrollCap
+            scrollAreaElement: foundScrollAreaElem,
+            scrollBarElement: foundScrollBarElem,
+            scrollCapability: scrollCap,
+            scrollAreaHeight: max(100.0, sHeight)
+        )
+    }
+    
+    public func inspect(element: AXUIElement, maxAncestors: Int = 4) -> AXCapabilityInspectionResult {
+        let ctx = discoverContext(element: element, maxAncestors: maxAncestors)
+        return AXCapabilityInspectionResult(
+            pid: ctx.pid,
+            applicationName: ctx.applicationName,
+            hitNode: ctx.hitNode,
+            ancestorChain: ctx.ancestorChain,
+            scrollCapability: ctx.scrollCapability
         )
     }
     

@@ -164,6 +164,8 @@ public final class AXSemanticEngine {
     /// measures cursor invariant before/after, and returns structured evidence.
     public func performSemanticTap(
         tap: PhysicalTapEvent,
+        preResolvedElement: AXUIElement? = nil,
+        preResolvedSnapshot: AXElementSnapshot? = nil,
         testCase: String = "Interactive Tap",
         expectedVisibleResult: String? = nil
     ) -> SemanticEvidenceRecord {
@@ -188,26 +190,34 @@ public final class AXSemanticEngine {
             return record
         }
         
-        // 2. AX Hit-Test at calibrated CoreGraphics global coordinate
-        let (elemOpt, snapshotOpt, hitErr) = probeElementAt(globalCG: tap.calibratedGlobalCG)
-        
-        guard hitErr == .success, let elem = elemOpt, let snapshot = snapshotOpt else {
-            let cursorLoc = NSEvent.mouseLocation
-            let record = makeRecord(
-                id: recordID,
-                testCase: testCase,
-                tap: tap,
-                snapshot: snapshotOpt,
-                actionName: "AXPress",
-                axErr: hitErr,
-                executed: false,
-                classification: (hitErr == .noValue || hitErr == .cannotComplete) ? .noActionableElement : .axHitTestFailed,
-                visibleResult: "AX hit test returned error: \(axErrorDescription(hitErr))",
-                cursorBefore: cursorLoc,
-                cursorAfter: cursorLoc
-            )
-            recordEvidence(record)
-            return record
+        // 2. Resolve AX Element (either pre-resolved from session touch-down or probed fresh)
+        let elem: AXUIElement
+        let snapshot: AXElementSnapshot
+        if let preElem = preResolvedElement, let preSnap = preResolvedSnapshot {
+            elem = preElem
+            snapshot = preSnap
+        } else {
+            let (elemOpt, snapshotOpt, hitErr) = probeElementAt(globalCG: tap.calibratedGlobalCG)
+            guard hitErr == .success, let e = elemOpt, let s = snapshotOpt else {
+                let cursorLoc = NSEvent.mouseLocation
+                let record = makeRecord(
+                    id: recordID,
+                    testCase: testCase,
+                    tap: tap,
+                    snapshot: snapshotOpt,
+                    actionName: "AXPress",
+                    axErr: hitErr,
+                    executed: false,
+                    classification: (hitErr == .noValue || hitErr == .cannotComplete) ? .noActionableElement : .axHitTestFailed,
+                    visibleResult: "AX hit test returned error: \(axErrorDescription(hitErr))",
+                    cursorBefore: cursorLoc,
+                    cursorAfter: cursorLoc
+                )
+                recordEvidence(record)
+                return record
+            }
+            elem = e
+            snapshot = s
         }
         
         // 3. Inspect supported actions for kAXPressAction ("AXPress")

@@ -43,11 +43,16 @@ public final class SemanticScrollController {
     
     private init() {}
     
+    public func reset() {
+        activeSession = nil
+    }
+    
     public func getScrollRecords() -> [ScrollEvidenceRecord] {
         return recordedScrolls
     }
     
     public func handleTouchDown(globalCG: CGPoint) -> Bool {
+        guard TouchBridgeRuntime.shared.userIntent == .enabled else { return false }
         guard AXPermissionManager.shared.isTrusted() else { return false }
         
         let (elemOpt, _, err) = AXSemanticEngine.shared.probeElementAt(globalCG: globalCG)

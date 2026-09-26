@@ -5,7 +5,7 @@ import CoreGraphics
 /// - Range: [0 .. 4096] in X, [0 .. 4096] in Y.
 /// - Origin: (0, 0) is top-left of sensor surface.
 /// - Axis orientation: X points right, Y points down.
-public struct RawHIDPoint: Codable, CustomStringConvertible {
+public struct RawHIDPoint: Codable, CustomStringConvertible, Equatable {
     public let x: Int
     public let y: Int
     
@@ -32,7 +32,7 @@ public struct RawHIDPoint: Codable, CustomStringConvertible {
 /// - Range: [0.0 .. 1.0] in u and v.
 /// - Origin: (0, 0) is top-left of sensor surface.
 /// - Axis orientation: u points right, v points down.
-public struct NormalizedSensorPoint: Codable, CustomStringConvertible {
+public struct NormalizedSensorPoint: Codable, CustomStringConvertible, Equatable {
     public let u: Double
     public let v: Double
     
@@ -130,5 +130,22 @@ public struct GlobalDisplayPoint: CustomStringConvertible {
     public var description: String {
         String(format: "Global(CG: [%.1f, %.1f], AppKit: [%.1f, %.1f], DisplayID: %d)",
                cgGlobal.x, cgGlobal.y, appKitGlobal.x, appKitGlobal.y, targetDisplayID)
+    }
+}
+
+extension DisplayLocalPoint {
+    public init(cgPoint: CGPoint, displayWidth: Double = 1280.0, displayHeight: Double = 960.0) {
+        self.cgPoint = cgPoint
+        self.appKitPoint = CGPoint(x: cgPoint.x, y: displayHeight - cgPoint.y)
+        self.displayWidth = displayWidth
+        self.displayHeight = displayHeight
+    }
+}
+
+extension GlobalDisplayPoint {
+    public init(cgGlobal: CGPoint, targetDisplayID: CGDirectDisplayID = 1) {
+        self.cgGlobal = cgGlobal
+        self.appKitGlobal = CGPoint(x: cgGlobal.x, y: 960.0 - cgGlobal.y)
+        self.targetDisplayID = targetDisplayID
     }
 }

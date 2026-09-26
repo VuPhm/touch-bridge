@@ -2,7 +2,7 @@ import Foundation
 import Cocoa
 import CoreGraphics
 
-public struct DisplayMetadata: Codable, CustomStringConvertible {
+public struct DisplayMetadata: Codable, CustomStringConvertible, Equatable {
     public let id: CGDirectDisplayID
     public let name: String
     public let isBuiltIn: Bool
@@ -60,6 +60,7 @@ public final class DisplayManager {
     
     private var isReconfigRegistered = false
     private var changeHandler: ((DisplayChangeEvent) -> Void)?
+    private var appKitObserver: NSObjectProtocol?
     
     private init() {}
     
@@ -167,6 +168,9 @@ public final class DisplayManager {
             
             CGDisplayRegisterReconfigurationCallback({ displayID, flags, userInfo in
                 guard let userInfo = userInfo else { return }
+                // Only process when reconfiguration has finalized (not beginning)
+                if flags.contains(.beginConfigurationFlag) { return }
+                
                 let manager = Unmanaged<DisplayManager>.fromOpaque(userInfo).takeUnretainedValue()
                 
                 if flags.contains(.addFlag) {
@@ -178,13 +182,26 @@ public final class DisplayManager {
                 }
             }, context)
             
-            NotificationCenter.default.addObserver(
+            appKitObserver = NotificationCenter.default.addObserver(
                 forName: NSApplication.didChangeScreenParametersNotification,
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
                 self?.changeHandler?(.arrangementChanged)
             }
+        }
+    }
+    
+    public func stopMonitoring() {
+        if isReconfigRegistered {
+            let context = Unmanaged.passUnretained(self).toOpaque()
+            CGDisplayRemoveReconfigurationCallback({ _, _, _ in }, context)
+            if let obs = appKitObserver {
+                NotificationCenter.default.removeObserver(obs)
+                appKitObserver = nil
+            }
+            isReconfigRegistered = false
+            changeHandler = nil
         }
     }
 }

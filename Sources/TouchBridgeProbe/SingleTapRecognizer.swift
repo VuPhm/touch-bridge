@@ -165,7 +165,7 @@ public final class SingleTapRecognizer {
         }
     }
     
-    private func reset() {
+    public func reset() {
         isTracking = false
         isCancelled = false
         cancellationReason = nil

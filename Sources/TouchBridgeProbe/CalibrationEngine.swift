@@ -1,7 +1,7 @@
 import Foundation
 import CoreGraphics
 
-public struct CalibrationPointPair: Codable {
+public struct CalibrationPointPair: Codable, Equatable {
     public let label: String
     public let targetLocalCG: CGPoint      // Target in Display Local CG points (Top-Left origin)
     public let rawSensor: RawHIDPoint       // Captured raw HID coordinate
@@ -18,7 +18,7 @@ public struct CalibrationPointPair: Codable {
 /// 2D Affine Transform Matrix:
 /// X = a*u + b*v + tx
 /// Y = c*u + d*v + ty
-public struct AffineMatrix2D: Codable, CustomStringConvertible {
+public struct AffineMatrix2D: Codable, CustomStringConvertible, Equatable {
     public let a: Double
     public let b: Double
     public let tx: Double
@@ -131,7 +131,7 @@ public struct AffineMatrix2D: Codable, CustomStringConvertible {
 }
 
 /// Fallback 3x3 Projective Homography for non-linear perspective mapping
-public struct HomographyMatrix3D: Codable, CustomStringConvertible {
+public struct HomographyMatrix3D: Codable, CustomStringConvertible, Equatable {
     public let h11: Double, h12: Double, h13: Double
     public let h21: Double, h22: Double, h23: Double
     public let h31: Double, h32: Double, h33: Double
@@ -150,7 +150,7 @@ public struct HomographyMatrix3D: Codable, CustomStringConvertible {
     }
 }
 
-public struct CalibrationProfile: Codable {
+public struct CalibrationProfile: Codable, Equatable {
     public let version: Int
     public let createdAt: Date
     
@@ -158,6 +158,12 @@ public struct CalibrationProfile: Codable {
     public let deviceVendorID: Int
     public let deviceProductID: Int
     public let deviceName: String
+    
+    // HID Coordinate Ranges
+    public var rawMinX: Int?
+    public var rawMaxX: Int?
+    public var rawMinY: Int?
+    public var rawMaxY: Int?
     
     // Bound Display Identity
     public let displayID: CGDirectDisplayID

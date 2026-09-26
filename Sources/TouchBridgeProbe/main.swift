@@ -9,15 +9,19 @@ func printHelp() {
     Usage: TouchBridgeProbe [options]
 
     Modes:
-      (Default)           Launch native P2-A Semantic Tap Gate with AppKit controls (Test A) and mode switching.
-      --probe-only        Phase 2 AX hit-test probe only (inspect element at physical tap without AXPress).
+      (Default)           Launch native TouchBridge P3-01 Menu-Bar Prototype Runtime.
+      --p2-gui            Launch legacy full-screen P2-A/B Semantic Tap Gate GUI.
+      --probe-only        AX hit-test probe only (inspect element at physical tap without AXPress).
       --p2-cli            Run P2-A semantic tap gate in headless CLI mode.
       --calibrate         Force a fresh 4-point calibration session (replaces existing profile).
       --verify            Run P1 diagnostic verification window using saved calibration profile.
       --inspect-only      Enumerate HID and Display interfaces, print full technical metadata, then exit.
-      --displays          List all connected displays with CoreGraphics and AppKit geometry.
       --test-timestamps   Empirically validate real HID frame timestamps across gestures (P1.5 requirement 1).
-      --cli-monitor       Run passive terminal touch monitor using the coherent TouchFrameAggregator.
+      --test-arbitration  Launch P3-03 Interaction Router & Gesture Arbitration Testbed Window.
+      --test-runtime      Run automated 28-test runtime and gesture arbitration validation suite.
+      --verify-arbitration Run live physical tap-vs-pan arbitration validation across all 4 scenarios.
+      --verify-gating     Run live hardware Enable/Disable gating verification.
+      --verify-hotplug    Run live hardware USB hot-plug disconnect/reconnect verification.
       --duration <sec>    In CLI modes, run for specified seconds then exit.
 
     Display Binding Options:
@@ -333,6 +337,87 @@ func main() {
         exit(0)
     }
     
+    let testRuntime = args.contains("--test-runtime")
+    if testRuntime {
+        let report = RuntimeValidator.shared.runAllValidations()
+        exit(report.allPassed ? 0 : 1)
+    }
+    
+    let verifyGating = args.contains("--verify-gating")
+    if verifyGating {
+        var dur: Double = 45.0
+        if let dIdx = args.firstIndex(of: "--duration"), dIdx + 1 < args.count, let d = Double(args[dIdx + 1]) {
+            dur = d
+        }
+        LiveInvariantValidator.shared.startGatingVerification(duration: dur)
+        CFRunLoopRun()
+        return
+    }
+    
+    let verifyHotPlug = args.contains("--verify-hotplug")
+    if verifyHotPlug {
+        var dur: Double = 40.0
+        if let dIdx = args.firstIndex(of: "--duration"), dIdx + 1 < args.count, let d = Double(args[dIdx + 1]) {
+            dur = d
+        }
+        LiveInvariantValidator.shared.startHotPlugVerification(duration: dur)
+        CFRunLoopRun()
+        return
+    }
+    
+    let testArbitration = args.contains("--test-arbitration")
+    if testArbitration {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.regular)
+        
+        let runtime = TouchBridgeRuntime.shared
+        runtime.start()
+        
+        ArbitrationTestWindowController.shared.showTestWindow()
+        
+        if let dIdx = args.firstIndex(of: "--duration"), dIdx + 1 < args.count, let d = Double(args[dIdx + 1]) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + d) {
+                TouchBridgeLogger.info(.lifecycle, "Duration of \(d)s elapsed. Terminating arbitration testbed.")
+                app.terminate(nil)
+            }
+        }
+        
+        app.run()
+        return
+    }
+    
+    let verifyArbitration = args.contains("--verify-arbitration")
+    if verifyArbitration {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.regular)
+        var dur: Double = 180.0
+        if let dIdx = args.firstIndex(of: "--duration"), dIdx + 1 < args.count, let d = Double(args[dIdx + 1]) {
+            dur = d
+        }
+        LiveArbitrationValidator.shared.startValidation(duration: dur)
+        app.run()
+        return
+    }
+    
+    let testRollback = args.contains("--test-rollback")
+    if testRollback {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.regular)
+        var targetFilter: String? = nil
+        if let fIdx = args.firstIndex(of: "--target"), fIdx + 1 < args.count {
+            targetFilter = args[fIdx + 1]
+        }
+        RollbackReproducer.shared.runReproductionSuite(targetFilter: targetFilter) {
+            TouchBridgeLogger.info(.lifecycle, "Rollback reproduction finished. Exiting.")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                app.terminate(nil)
+                exit(0)
+            }
+        }
+        app.run()
+        return
+    }
+    
     let inspectOnly = args.contains("--inspect-only")
     let listDisplays = args.contains("--displays")
     let testTimestamps = args.contains("--test-timestamps")
@@ -483,8 +568,22 @@ func main() {
         return
     }
     
-    // Launch Native Cocoa GUI
+    // Check whether to run the native P3-01 menu-bar prototype or legacy full-screen GUI
+    let p2Gui = args.contains("--p2-gui")
+    let hasTestFlags = testB || testTextEdit || testFinder || testC
+    let runMenuBar = !runVerify && !forceCalibrate && !hasTestFlags && !probeOnly && !p2Gui
+    
     let app = NSApplication.shared
+    
+    if runMenuBar {
+        let delegate = AppDelegate.shared
+        delegate.sessionDuration = duration
+        app.delegate = delegate
+        app.run()
+        return
+    }
+    
+    // Legacy Full-Screen Diagnostic GUI
     app.setActivationPolicy(.regular)
     
     let sessionMode: SessionMode
