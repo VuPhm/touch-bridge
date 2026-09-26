@@ -75,6 +75,10 @@ public final class RuntimeValidator {
         test37_CGClickPointerIsolationMeasured()
         test38_FingerDownSmoothingBounded()
         test39_ReleaseMomentumStillInterruptedByNewTouch()
+        test40_TapRouting_GenericFocusableScrollAreaFallsBack()
+        test41_TapRouting_FailedFocusFallsThrough()
+        test42_TapRouting_TextFieldFocusConsumesTap()
+        test43_TapRouting_ButtonPressPrecedesFocus()
         
         let passed = results.filter { $0.passed }.count
         let failed = results.filter { !$0.passed }.count
@@ -1232,6 +1236,49 @@ public final class RuntimeValidator {
         let interruptedImmediately = delegate.momentumInterruptCount == 1 && recognizer.activeSession?.state == .possibleTap
         record(name: "Test 39: Release Momentum Interrupted By New Touch", passed: entered && interruptedImmediately, details: "Release momentum remains separate from finger-down smoothing and is synchronously interrupted on the next contact.")
         recognizer.reset()
+    }
+
+    private func test40_TapRouting_GenericFocusableScrollAreaFallsBack() {
+        let backends = TapRoutingPolicy.backends(
+            role: "AXScrollArea",
+            supportedActions: [],
+            settableAttributes: [kAXFocusedAttribute as String]
+        )
+        let passed = backends == [.coreGraphicsPrimaryClick]
+        record(name: "Test 40: Tap Routing — Generic Focusable Scroll Area", passed: passed, details: "AXScrollArea with generic AXFocused settable capability and no actions routes directly to CG_PRIMARY_CLICK; focus cannot consume the tap.")
+    }
+
+    private func test41_TapRouting_FailedFocusFallsThrough() {
+        let backends = TapRoutingPolicy.backends(
+            role: "AXTextField",
+            supportedActions: [],
+            settableAttributes: [kAXFocusedAttribute as String]
+        )
+        let focusSucceeded = TapRoutingPolicy.succeeded(.focusReadback(isFocused: false))
+        let passed = backends == [.focus, .coreGraphicsPrimaryClick] && !focusSucceeded && backends.last == .coreGraphicsPrimaryClick
+        record(name: "Test 41: Tap Routing — Failed Focus Falls Through", passed: passed, details: "Eligible text field whose AXFocused readback remains false classifies focus as unsuccessful and advances to CG_PRIMARY_CLICK; no TAP_FOCUS_SUCCESS is emitted.")
+    }
+
+    private func test42_TapRouting_TextFieldFocusConsumesTap() {
+        let backends = TapRoutingPolicy.backends(
+            role: "AXTextField",
+            supportedActions: [],
+            settableAttributes: [kAXFocusedAttribute as String]
+        )
+        let focusSucceeded = TapRoutingPolicy.succeeded(.focusReadback(isFocused: true))
+        let passed = backends.first == .focus && focusSucceeded
+        record(name: "Test 42: Tap Routing — Text Field Focus", passed: passed, details: "AXTextField with AXFocused settable capability keeps semantic focus as the first backend; successful focus consumes the tap without a CG click.")
+    }
+
+    private func test43_TapRouting_ButtonPressPrecedesFocus() {
+        let backends = TapRoutingPolicy.backends(
+            role: "AXButton",
+            supportedActions: [kAXPressAction as String],
+            settableAttributes: [kAXFocusedAttribute as String]
+        )
+        let pressSucceeded = TapRoutingPolicy.succeeded(.axActionSucceeded(true))
+        let passed = backends.first == .press && !backends.contains(.focus) && pressSucceeded
+        record(name: "Test 43: Tap Routing — Button AXPress", passed: passed, details: "AXButton with AXPress and generic focus settable capability routes to AX_PRESS; focus is ineligible for this role and cannot steal the tap.")
     }
     
     private func record(name: String, passed: Bool, details: String) {
