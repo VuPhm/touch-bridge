@@ -131,16 +131,7 @@ public final class LiveDiagnosticsRunner: NSObject, TouchBridgeRuntimeDelegate {
         let speed = hypot(vel.dx, vel.dy)
         let seized = runtime.device.isExclusivelySeized ? "EXCLUSIVE" : "SHARED"
         
-        let backend: String
-        if session.state == .directPan || session.state == .momentum {
-            backend = "CG_SCROLL_WHEEL"
-        } else if session.context != nil {
-            // The final tap backend depends on bounded actionable descendant
-            // resolution at release, so the raw touch-down hit is not predictive.
-            backend = "TAP_AX_RESOLUTION_PENDING"
-        } else {
-            backend = "TAP_AX_HIT_TEST_PENDING"
-        }
+        let backend = session.diagnosticBackend
         
         let line = String(
             format: "[DIAG] Contacts: %d [IDs: %@] | PrimID: %d | Raw: (%4d, %4d) -> Mapped: (%6.1f, %6.1f) | State: %-12@ | Speed: %5.1f pt/s | Backend: %-16@ | Seize: %@",

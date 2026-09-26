@@ -104,6 +104,12 @@ public final class TouchGestureRecognizer {
                 return
             }
 
+            // Natural momentum completion is reported asynchronously by the
+            // router. Retire any settled session before starting a fresh contact.
+            if activeContacts.isEmpty, activeSession?.state == .idle {
+                activeSession = nil
+            }
+
             // If in kinetic momentum, ANY new touch immediately cancels existing momentum (P3-03R Phase C)
             if let current = activeSession, current.state == .momentum {
                 TouchBridgeLogger.info(.gesture, "New touch down during momentum -> Momentum interrupted immediately.")
@@ -167,7 +173,7 @@ public final class TouchGestureRecognizer {
                     y: (points[0].y + points[1].y) / 2.0
                 )
                 session.promoteToTwoFingerPan(centroid: centroid, now: now)
-                if !alreadyPanning {
+                if !alreadyPanning, session.state == .directPan {
                     delegate?.gestureRecognizer(self, didStartPanWithSession: session)
                 }
             } else {
@@ -350,6 +356,13 @@ public final class TouchGestureRecognizer {
             case .idle, .tapExecuted:
                 self.activeSession = nil
             }
+        }
+    }
+
+    func momentumDidEnd(_ session: InteractionSession) {
+        guard activeSession === session else { return }
+        if activeContacts.isEmpty {
+            activeSession = nil
         }
     }
 }

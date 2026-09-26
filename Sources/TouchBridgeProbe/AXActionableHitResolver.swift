@@ -70,6 +70,47 @@ enum AXActionableHitResolver {
     /// Walk only the initial hit element's local descendant neighborhood.
     static func resolve(initialElement: AXUIElement, point: CGPoint) -> AXActionableHitResolution {
         let startedAt = ProcessInfo.processInfo.systemUptime
+        let rawCapability = AXCapabilityInspector.shared.inspectNode(initialElement)
+        var liveActionsRef: CFArray?
+        var liveActionsError = AXUIElementCopyActionNames(initialElement, &liveActionsRef)
+        if liveActionsError == .cannotComplete {
+            var retryActionsRef: CFArray?
+            let retryError = AXUIElementCopyActionNames(initialElement, &retryActionsRef)
+            if retryError == .success, retryActionsRef as? [String] != nil {
+                liveActionsRef = retryActionsRef
+                liveActionsError = .success
+                TouchBridgeLogger.info(.semantic, "RAW_ACTIONABLE_RETRY -> AX actions available")
+            } else {
+                liveActionsError = retryError
+                TouchBridgeLogger.info(.semantic, "RAW_ACTIONABLE_REJECTED: action_query_failed (retry error \(retryError.rawValue))")
+            }
+        }
+        let liveActions = liveActionsError == .success
+            ? Set((liveActionsRef as? [String]) ?? [])
+            : Set<String>()
+        let rawFrame: CGRect?
+        if let position = rawCapability.position, let size = rawCapability.size,
+           position.count >= 2, size.count >= 2, size[0] > 0, size[1] > 0 {
+            rawFrame = CGRect(x: position[0], y: position[1], width: size[0], height: size[1])
+        } else {
+            rawFrame = nil
+        }
+        if liveActionsError != .success {
+            TouchBridgeLogger.info(.semantic, "RAW_ACTIONABLE_REJECTED: action_query_failed")
+        } else if rawFrame?.contains(point) == false {
+            TouchBridgeLogger.info(.semantic, "RAW_ACTIONABLE_REJECTED: frame_miss")
+        } else if TapRoutingPolicy.isPrimaryActionable(
+            role: rawCapability.role,
+            supportedActions: liveActions,
+            settableAttributes: Set(rawCapability.settableAttributes)
+        ) {
+            let freshNode = rawCapability.replacingSupportedActions(Array(liveActions))
+            TouchBridgeLogger.info(.semantic, "RAW_ACTIONABLE_ACCEPTED: \(rawCapability.role)")
+            return AXActionableHitResolution(element: initialElement, node: freshNode, depth: 0, nodesVisited: 1)
+        } else {
+            TouchBridgeLogger.info(.semantic, "RAW_ACTIONABLE_REJECTED: role_or_primary_action")
+        }
+
         var elements: [AXUIElement] = [initialElement]
         var nodes: [Int: ActionableAXNode] = [:]
         var queue: [(id: Int, depth: Int)] = [(0, 0)]

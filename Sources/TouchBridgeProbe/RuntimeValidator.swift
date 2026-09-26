@@ -90,6 +90,8 @@ public final class RuntimeValidator {
         test52_MomentumOnlyAfterTwoFingerPan()
         test53_TwoToOneRequiresFullRelease()
         test54_FreshOneFingerTapAfterFullRelease()
+        test55_RawCheckboxAndPopupActionPolicy()
+        test56_PostMomentumFreshTwoFingerGesture()
         
         let passed = results.filter { $0.passed }.count
         let failed = results.filter { !$0.passed }.count
@@ -1432,6 +1434,56 @@ public final class RuntimeValidator {
         usleep(25_000)
         recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: a), global: GlobalDisplayPoint(cgGlobal: a), contactID: 3)
         record(name: "Test 54: Fresh One-Finger Tap After Full Release", passed: delegate.tapCount == 1 && delegate.panStartCount == 1, details: "A new tap session is accepted after both contacts from the prior two-finger gesture have lifted.")
+    }
+
+    private func test55_RawCheckboxAndPopupActionPolicy() {
+        let checkbox = testAXNode(0, "AXCheckBox", actions: [kAXPressAction as String], frame: CGRect(x: 10, y: 10, width: 30, height: 30))
+        let checkboxHit = AXActionableHitResolver.resolve(rootID: 0, nodes: [0: checkbox], point: CGPoint(x: 20, y: 20))
+        let popupActions: Set<String> = [kAXShowMenuAction as String]
+        let popupBackends = TapRoutingPolicy.backends(role: "AXPopUpButton", supportedActions: popupActions, settableAttributes: [])
+        let popupActionable = TapRoutingPolicy.isPrimaryActionable(role: "AXPopUpButton", supportedActions: popupActions, settableAttributes: [])
+        let groupActions = TapRoutingPolicy.backends(role: "AXGroup", supportedActions: popupActions, settableAttributes: [])
+        let pressRolesUnchanged = ["AXButton", "AXCheckBox", "AXMenuBarItem"].allSatisfy {
+            TapRoutingPolicy.backends(role: $0, supportedActions: [kAXPressAction as String], settableAttributes: []).first == .press
+        }
+        let passed = checkboxHit?.nodeID == 0 && popupActionable && popupBackends.first == .showMenu &&
+            groupActions == [.cursorMovingCGClick] && pressRolesUnchanged
+        record(name: "Test 55: Raw Checkbox and Popup Menu Actions", passed: passed, details: "A point-containing raw AXCheckBox with AXPress is accepted; AXPopUpButton may use advertised AXShowMenu, AXGroup may not, and existing AXPress roles are unchanged.")
+    }
+
+    private func test56_PostMomentumFreshTwoFingerGesture() {
+        let recognizer = TouchGestureRecognizer(mapper: CoordinateMapper())
+        let delegate = TestGestureDelegate()
+        recognizer.delegate = delegate
+        recognizer.testContextOverride = makeTestScrollContext(isScrollable: true)
+        let a = CGPoint(x: 240, y: 240), c = CGPoint(x: 440, y: 240)
+        func send(_ phase: TouchPhase, _ point: CGPoint, _ id: Int) {
+            recognizer.processMappedPoint(phase: phase, local: DisplayLocalPoint(cgPoint: point), global: GlobalDisplayPoint(cgGlobal: point), contactID: id)
+        }
+        send(.down, a, 1)
+        let firstDown = recognizer.activeSession?.state == .possibleTap && recognizer.activeSession?.diagnosticBackend == "TAP_AX_RESOLUTION_PENDING"
+        send(.down, c, 2)
+        let directPan = recognizer.activeSession?.state == .directPan && recognizer.activeSession?.diagnosticBackend == "CG_SCROLL_WHEEL" && delegate.panStartCount == 1
+        usleep(10_000)
+        send(.move, CGPoint(x: 240, y: 290), 1)
+        send(.move, CGPoint(x: 440, y: 290), 2)
+        send(.up, CGPoint(x: 240, y: 290), 1)
+        let momentum = recognizer.activeSession?.state == .momentum && recognizer.activeSession?.diagnosticBackend == "CG_SCROLL_WHEEL"
+        send(.up, CGPoint(x: 440, y: 290), 2)
+        let quarantineComplete = recognizer.activeContacts.isEmpty && recognizer.activeSession?.state == .momentum &&
+            recognizer.activeSession?.diagnosticBackend == "CG_SCROLL_WHEEL"
+        if let session = recognizer.activeSession {
+            session.markMomentumEnded()
+            recognizer.momentumDidEnd(session)
+        }
+        let settled = recognizer.activeSession == nil && recognizer.activeContacts.isEmpty
+        send(.down, a, 3)
+        let freshFirst = recognizer.activeSession?.state == .possibleTap && recognizer.activeSession?.diagnosticBackend == "TAP_AX_RESOLUTION_PENDING"
+        send(.down, c, 4)
+        let freshDirectPan = recognizer.activeSession?.state == .directPan && recognizer.activeSession?.diagnosticBackend == "CG_SCROLL_WHEEL" && delegate.panStartCount == 2
+        let passed = firstDown && directPan && momentum && quarantineComplete && settled && freshFirst && freshDirectPan
+        record(name: "Test 56: Fresh Two-Finger Pan After Natural Momentum", passed: passed, details: "firstDown=\(firstDown), directPan=\(directPan), momentum=\(momentum), quarantine=\(quarantineComplete), settled=\(settled), freshFirst=\(freshFirst), freshDirectPan=\(freshDirectPan); each state/backend pair is checked, and IDLE cannot emit pan start.")
+        recognizer.reset()
     }
 
     private func testAXNode(_ id: Int, _ role: String, actions: Set<String> = [], attributes: Set<String> = [], frame: CGRect?, children: [Int] = []) -> ActionableAXNode {

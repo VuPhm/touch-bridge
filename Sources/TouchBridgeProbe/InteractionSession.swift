@@ -136,6 +136,10 @@ public final class InteractionSession {
     public private(set) var maxMovementPt: Double = 0.0
     public private(set) var currentMovementPt: Double = 0.0
     public private(set) var state: GestureState = .possibleTap
+    public var diagnosticBackend: String {
+        if state == .directPan || state == .momentum { return "CG_SCROLL_WHEEL" }
+        return context != nil ? "TAP_AX_RESOLUTION_PENDING" : "TAP_AX_HIT_TEST_PENDING"
+    }
     
     // Velocity tracking (P3-03R Phase B & C)
     public private(set) var instantaneousVelocity: CGVector = .zero

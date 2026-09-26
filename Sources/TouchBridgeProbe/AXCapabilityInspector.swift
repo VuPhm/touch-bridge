@@ -25,6 +25,17 @@ public struct AXNodeCapability: Codable {
     public var isValueSettable: Bool { settableAttributes.contains(kAXValueAttribute as String) }
     public var isFocusSettable: Bool { settableAttributes.contains(kAXFocusedAttribute as String) }
     public var isSelectedSettable: Bool { settableAttributes.contains(kAXSelectedAttribute as String) }
+
+    func replacingSupportedActions(_ actions: [String]) -> AXNodeCapability {
+        AXNodeCapability(
+            role: role, subrole: subrole, title: title, descriptionText: descriptionText,
+            value: value, minValue: minValue, maxValue: maxValue, valueIncrement: valueIncrement,
+            isEnabled: isEnabled, isFocused: isFocused, isSelected: isSelected,
+            position: position, size: size, parentRole: parentRole,
+            supportedActions: actions, attributeNames: attributeNames,
+            parameterizedAttributeNames: parameterizedAttributeNames, settableAttributes: settableAttributes
+        )
+    }
     
     public func toSnapshot(pid: Int32, appName: String) -> AXElementSnapshot {
         var frame: [Double]? = nil

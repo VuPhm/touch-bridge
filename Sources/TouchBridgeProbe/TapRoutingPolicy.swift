@@ -3,6 +3,7 @@ import ApplicationServices
 
 enum TapBackend: String, Equatable {
     case press = "AX_PRESS"
+    case showMenu = "AX_SHOW_MENU"
     case selection = "AX_SELECTION"
     case focus = "AX_FOCUS"
     case cursorMovingCGClick = "CG_PRIMARY_CLICK_CURSOR_MOVING"
@@ -32,9 +33,13 @@ enum TapRoutingPolicy {
     private static let selectionRoles: Set<String> = [
         "AXRow", "AXCell", "AXListItem", "AXOutlineRow"
     ]
+    private static let menuOpeningRoles: Set<String> = [
+        "AXPopUpButton", "AXMenuButton", "AXComboBox"
+    ]
 
     static func isPrimaryActionable(role: String, supportedActions: Set<String>, settableAttributes: Set<String>) -> Bool {
         supportedActions.contains(kAXPressAction as String) ||
+            (menuOpeningRoles.contains(role) && supportedActions.contains(kAXShowMenuAction as String)) ||
             (selectionRoles.contains(role) && settableAttributes.contains(kAXSelectedAttribute as String)) ||
             (textEntryRoles.contains(role) && settableAttributes.contains(kAXFocusedAttribute as String))
     }
@@ -43,6 +48,9 @@ enum TapRoutingPolicy {
         var result: [TapBackend] = []
         if supportedActions.contains(kAXPressAction as String) {
             result.append(.press)
+        }
+        if menuOpeningRoles.contains(role), supportedActions.contains(kAXShowMenuAction as String) {
+            result.append(.showMenu)
         }
         if selectionRoles.contains(role), settableAttributes.contains(kAXSelectedAttribute as String) {
             result.append(.selection)

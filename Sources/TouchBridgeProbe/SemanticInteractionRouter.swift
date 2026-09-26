@@ -31,6 +31,7 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
     // Kinetic momentum state (P3-03R Phase C)
     private var momentumTimer: Timer? = nil
     private var activeMomentumSession: InteractionSession? = nil
+    private weak var momentumRecognizer: TouchGestureRecognizer?
     private var currentMomentumVelocity: CGVector = .zero
     private var fingerDownSmoothingTimer: Timer? = nil
     private var fingerDownSmoothingTail: FingerDownSmoothingTail? = nil
@@ -206,6 +207,7 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
         
         // 2. Start kinetic momentum
         self.activeMomentumSession = session
+        self.momentumRecognizer = recognizer
         self.currentMomentumVelocity = initialVelocity
         loggedMomentumFields = false
         
@@ -237,7 +239,9 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
                 active.markMomentumEnded()
                 TouchBridgeLogger.info(.semantic, "Kinetic momentum settled naturally.")
                 self.delegate?.semanticRouter(self, didCompleteSession: active, evidenceBlock: active.formattedEvidenceBlock())
+                self.momentumRecognizer?.momentumDidEnd(active)
                 self.activeMomentumSession = nil
+                self.momentumRecognizer = nil
             } else {
                 // Continuous kinetic momentum step
                 self.postScrollWheelEvent(location: active.latestGlobalPoint.cgGlobal, deltaY: step, phase: 0, momentumPhase: 2)
@@ -253,6 +257,7 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
             active.markMomentumEnded()
             TouchBridgeLogger.info(.semantic, "Kinetic momentum INTERRUPTED immediately by new touch contact.")
             self.activeMomentumSession = nil
+            self.momentumRecognizer = nil
         }
     }
     
@@ -351,6 +356,20 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
                 }
                 TouchBridgeLogger.info(.semantic, "Capability Authorized [TAP_PRESS_SUCCESS] -> [\(context.applicationName) \(node.role)]: \(record.visibleResult)")
                 delegate?.semanticRouter(self, didUpdateFeedback: record.visibleResult, invariantPassed: record.cursor.invariantSatisfied)
+                completeTapRoute(route, role: node.role, result: "SUCCESS", session: session)
+                return
+
+            case .showMenu:
+                route.append(TapBackend.showMenu.rawValue)
+                let error = AXUIElementPerformAction(element, kAXShowMenuAction as CFString)
+                guard error == .success else {
+                    route[route.count - 1] = "AX_SHOW_MENU_REJECTED"
+                    TouchBridgeLogger.warning(.semantic, "AXShowMenu failed for [\(node.role)]: error \(error.rawValue). Continuing tap routing.")
+                    continue
+                }
+                session.tapActionResult = "AXShowMenu succeeded on \(node.role)"
+                TouchBridgeLogger.info(.semantic, "Capability Authorized [TAP_MENU_SUCCESS] -> [\(context.applicationName) \(node.role)]")
+                delegate?.semanticRouter(self, didUpdateFeedback: session.tapActionResult, invariantPassed: true)
                 completeTapRoute(route, role: node.role, result: "SUCCESS", session: session)
                 return
 
