@@ -13,7 +13,7 @@ public final class ArbitrationTestWindowController: NSObject, NSWindowDelegate, 
     // Top HUD Labels
     private let titleLabel = NSTextField(labelWithString: "TouchBridge P3-03 — Gesture Layer & Arbitration Testbed")
     private let stateLabel = NSTextField(labelWithString: "Gesture State: IDLE")
-    private let movementLabel = NSTextField(labelWithString: "Movement: 0.0 pt | Threshold: 18.0 pt | Duration: 0.000s")
+    private let movementLabel = NSTextField(labelWithString: "1 finger: tap | 2 fingers: scroll | >18 pt: cancel tap")
     private let elementLabel = NSTextField(labelWithString: "AX Hit Discovery: None")
     private let lastActionLabel = NSTextField(labelWithString: "Last Semantic Result: Ready for gestures.")
     private let cursorInvariantLabel = NSTextField(labelWithString: "Cursor Isolation: ISOLATED (Delta: 0.00 pt)")
@@ -273,7 +273,7 @@ public final class ArbitrationTestWindowController: NSObject, NSWindowDelegate, 
             
             // Add blank gap and nested text field around Button 10
             if i == 5 || i == 15 {
-                let blankLabel = NSTextField(labelWithString: "--- Blank Scroll Area (Swipe here to test pan without controls) ---")
+                let blankLabel = NSTextField(labelWithString: "--- Blank Scroll Area (use two fingers to scroll) ---")
                 blankLabel.font = NSFont.systemFont(ofSize: 11, weight: .bold)
                 blankLabel.textColor = NSColor(red: 0.5, green: 0.5, blue: 0.6, alpha: 1.0)
                 blankLabel.alignment = .center
@@ -281,7 +281,7 @@ public final class ArbitrationTestWindowController: NSObject, NSWindowDelegate, 
                 docView.addSubview(blankLabel)
                 curY -= 60
             } else if i == 10 {
-                let tfHeader = NSTextField(labelWithString: "Nested Control Test: NSTextField (Tap to focus, swipe to scroll ancestor)")
+                let tfHeader = NSTextField(labelWithString: "Nested Control Test: NSTextField (one-finger tap to focus; two fingers to scroll)")
                 tfHeader.font = NSFont.systemFont(ofSize: 11, weight: .bold)
                 tfHeader.textColor = NSColor(red: 0.4, green: 0.8, blue: 1.0, alpha: 1.0)
                 tfHeader.frame = NSRect(x: btnX, y: curY - 20, width: btnWidth, height: 18)

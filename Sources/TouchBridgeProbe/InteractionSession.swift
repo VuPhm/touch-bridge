@@ -8,10 +8,10 @@ import ApplicationServices
 /// Deterministic states of a physical single-touch / multi-touch contact session (P3-03R Phase B).
 public enum GestureState: Equatable, CustomStringConvertible {
     case idle
-    case possibleTap        // Movement is below panThreshold; eligible for tap on release
-    case directPan          // Active continuous direct-touch pan (1 or 2 fingers)
+    case possibleTap        // One-finger tap candidate while movement remains within touch slop
+    case directPan          // Active continuous two-finger pan (or experimental one-finger pan)
     case momentum           // Kinetic coasting after flick release
-    case unsupportedPan     // Movement crossed panThreshold, but surface has no scroll backend
+    case unsupportedPan     // Two-finger pan has no scroll backend
     case tapExecuted        // Released while in possibleTap -> Tap successfully dispatched
     case cancelled(reason: String) // Cancelled (micro-glitch, hot-plug disconnect)
     
@@ -55,8 +55,11 @@ public enum InteractionResultType: String, Codable {
 public struct GestureArbitrationConfig {
     /// Baseline movement tolerance threshold in points (touch slop).
     /// Below this: candidate for TAP.
-    /// Exceeding this: permanently cancels TAP and transitions to DIRECT_PAN.
+    /// In product mode, exceeding this cancels TAP. Two-finger contact independently starts scrolling.
     public static var panThresholdPt: Double = 18.0
+
+    /// Diagnostic escape hatch for the retired one-finger pan behavior. Product defaults to false.
+    public static var experimentalOneFingerPanEnabled: Bool = false
     
     /// Minimum contact duration to filter out electrical glitches or micro-bounces (15 ms).
     public static var minTapDurationSec: Double = 0.015
@@ -108,6 +111,7 @@ public enum GestureTransitionAction {
     case none
     case transitionedToPan(initialValue: Double)
     case transitionedToUnsupportedPan
+    case cancelledMovement
     case panValueUpdated(targetValue: Double, deltaPixels: CGVector)
 }
 
@@ -118,6 +122,7 @@ public final class InteractionSession {
     public var contactCount: Int = 1
     public var secondaryContactID: Int? = nil
     public var allowCGScrollFallback: Bool = true
+    public var experimentalOneFingerPanEnabled = GestureArbitrationConfig.experimentalOneFingerPanEnabled
     
     public let startTimeMach: UInt64
     public let startTimeDate: Date
@@ -269,6 +274,13 @@ public final class InteractionSession {
             if dist > GestureArbitrationConfig.panThresholdPt {
                 self.timeToPanSec = now.timeIntervalSince(startTimeDate)
                 self.movementAtPanTransitionPt = dist
+
+                guard experimentalOneFingerPanEnabled else {
+                    state = .cancelled(reason: "MOVEMENT_TOLERANCE_EXCEEDED")
+                    transitionDescription = "possibleTap -> cancelled(movement tolerance exceeded)"
+                    panActionResult = "One-finger movement cancelled; scrolling requires two contacts"
+                    return .cancelledMovement
+                }
                 
                 // Permanently cancel TAP (P3-02 Section 3 & P3-03R)
                 if hasValidContinuousScrollBackend() {
@@ -304,18 +316,14 @@ public final class InteractionSession {
         }
     }
     
-    /// Immediate promotion to two-finger pan when a secondary contact arrives (P3-03R Phase B).
+    /// Immediate promotion to two-finger pan when a secondary contact arrives.
     public func promoteToTwoFingerPan(centroid: CGPoint, now: Date = Date()) {
-        guard state == .possibleTap || state == .directPan else { return }
-        let wasAlreadyPanning = state == .directPan
+        guard state == .possibleTap || state == .cancelled(reason: "MOVEMENT_TOLERANCE_EXCEEDED") else { return }
         self.contactCount = 2
-        if !wasAlreadyPanning { self.timeToPanSec = now.timeIntervalSince(startTimeDate) }
+        self.timeToPanSec = now.timeIntervalSince(startTimeDate)
         self.movementAtPanTransitionPt = currentMovementPt
         rebaseMotion(point: centroid, now: now)
-        if wasAlreadyPanning {
-            transitionDescription = "directPan -> directPan (two-finger rebase)"
-            panActionResult = "Two-finger direct-touch pan active"
-        } else if hasValidContinuousScrollBackend() {
+        if hasValidContinuousScrollBackend() {
             state = .directPan
             transitionDescription = "possibleTap -> directPan (two-finger)"
             panActionResult = "Two-finger direct-touch pan active"
@@ -328,16 +336,6 @@ public final class InteractionSession {
             state = .unsupportedPan
             transitionDescription = "possibleTap -> unsupportedPan (two-finger)"
             panActionResult = "Unsupported two-finger pan suppressed"
-        }
-    }
-
-    public func rebindActiveContact(_ id: Int, point: CGPoint, now: Date = Date()) {
-        contactID = id
-        secondaryContactID = nil
-        contactCount = 1
-        rebaseMotion(point: point, now: now)
-        if state == .directPan {
-            transitionDescription = "directPan -> directPan (single-contact rebase)"
         }
     }
 

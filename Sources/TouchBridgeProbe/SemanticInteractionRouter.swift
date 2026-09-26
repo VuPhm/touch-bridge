@@ -94,7 +94,7 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
         }
         
         let appName = session.context?.applicationName ?? "Application"
-        if preferContinuousCGScroll || session.context?.scrollBarElement == nil {
+        if usesCGScroll(for: session) {
             session.panActionResult = "DIRECT_PAN -> CG_SCROLL_WHEEL (public continuous pixel events)"
         } else {
             session.panActionResult = "DIRECT_PAN -> AX_SCROLL_VALUE"
@@ -104,7 +104,7 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
             "Direct Pan STARTED on [\(appName)] (Contacts: \(session.contactCount))"
         )
         
-        if preferContinuousCGScroll || session.context?.scrollBarElement == nil {
+        if usesCGScroll(for: session) {
             postScrollWheelEvent(location: session.startGlobalPoint.cgGlobal, deltaY: 0, phase: 1, momentumPhase: 0)
         }
         
@@ -123,14 +123,14 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
             startFingerDownSmoothing(session: session)
         }
         
-        if preferContinuousCGScroll || session.context?.scrollBarElement == nil {
+        if usesCGScroll(for: session) {
             postScrollWheelEvent(location: session.latestGlobalPoint.cgGlobal, deltaY: deltaPixels.dy, phase: 2, momentumPhase: 0)
         }
     }
     
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didUpdatePanWithSession session: InteractionSession, targetValue: Double) {
         guard userIntent == .enabled else { return }
-        guard !preferContinuousCGScroll, let bar = session.context?.scrollBarElement else { return }
+        guard !usesCGScroll(for: session), let bar = session.context?.scrollBarElement else { return }
         
         let scheduledAt = Date()
         let cursorBefore = SafetyInvariants.currentCursorPosition()
@@ -175,7 +175,7 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
         haltMomentum()
         haltFingerDownSmoothing()
         
-        if preferContinuousCGScroll || session.context?.scrollBarElement == nil {
+        if usesCGScroll(for: session) {
             postScrollWheelEvent(location: session.latestGlobalPoint.cgGlobal, deltaY: 0, phase: 4, momentumPhase: 0)
         }
         
@@ -274,7 +274,7 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
         session.cursorAfter = SafetyInvariants.currentCursorPosition()
         TouchBridgeLogger.debug(.gesture, "Gesture session cancelled: \(reason) (Mov: \(String(format: "%.1f", session.maxMovementPt)) pt)")
         
-        if reason == "UNSUPPORTED_PAN_RELEASE" {
+        if reason == "UNSUPPORTED_PAN_RELEASE" || reason == "MOVEMENT_TOLERANCE_EXCEEDED" || reason == "CONTACT_TOO_BRIEF" {
             delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
         }
     }
@@ -575,7 +575,7 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
                 return
             }
             self.fingerDownSmoothingTail = tail
-            if self.preferContinuousCGScroll {
+            if self.usesCGScroll(for: session) {
                 self.postScrollWheelEvent(location: session.latestGlobalPoint.cgGlobal, deltaY: delta, phase: 2, momentumPhase: 0)
             }
         }
@@ -585,6 +585,10 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
         fingerDownSmoothingTimer?.invalidate()
         fingerDownSmoothingTimer = nil
         fingerDownSmoothingTail = nil
+    }
+
+    private func usesCGScroll(for session: InteractionSession) -> Bool {
+        session.contactCount >= 2 || preferContinuousCGScroll || session.context?.scrollBarElement == nil
     }
     
     private func haltMomentum() {

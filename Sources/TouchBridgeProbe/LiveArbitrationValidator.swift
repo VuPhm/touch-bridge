@@ -28,12 +28,12 @@ public final class LiveArbitrationValidator: NSObject, TouchBridgeRuntimeDelegat
         public var title: String {
             switch self {
             case .a1_stationaryButton: return "Test A1 — TouchBridge stationary button tap"
-            case .a2_swipeOnButton:    return "Test A2 — TouchBridge swipe starting directly on a button"
-            case .a3_blankAreaPan:     return "Test A3 — TouchBridge blank-area pan"
+            case .a2_swipeOnButton:    return "Test A2 — TouchBridge two-finger scroll starting on a button"
+            case .a3_blankAreaPan:     return "Test A3 — TouchBridge two-finger blank-area scroll"
             case .b1_finderRowTap:     return "Test B1 — Finder stationary row tap"
-            case .b2_finderRowSwipe:   return "Test B2 — Finder vertical swipe on row"
+            case .b2_finderRowSwipe:   return "Test B2 — Finder two-finger scroll on row"
             case .c1_textEditTap:      return "Test C1 — TextEdit stationary tap inside editable text"
-            case .c2_textEditSwipe:    return "Test C2 — TextEdit swipe starting inside text area"
+            case .c2_textEditSwipe:    return "Test C2 — TextEdit two-finger scroll inside text area"
             case .d1_safariButtonTap:  return "Test D1 — Safari stationary tap button/link"
             case .d2_safariSwipeNegative: return "Test D2 — Safari swipe on actionable element (Negative Control)"
             }
@@ -44,21 +44,21 @@ public final class LiveArbitrationValidator: NSObject, TouchBridgeRuntimeDelegat
             case .a1_stationaryButton:
                 return "Touch Button #1 normally and release (movement < 18 pt).\n   Required: possibleTap -> tapExecuted, Button #1 counter increments exactly once, no pan."
             case .a2_swipeOnButton:
-                return "Place finger directly on Button #1 and drag vertically beyond 18 pt.\n   Required: child hit target is Button #1, transitions to semanticPan, Button #1 does NOT activate, content scrolls, NO delayed tap."
+                return "Place two fingers on Button #1 and move vertically together.\n   Required: child hit target is Button #1, transitions to two-finger scroll, content scrolls, and Button #1 does NOT activate."
             case .a3_blankAreaPan:
-                return "Swipe vertically on the blank area between button groups.\n   Required: normal semantic pan without any tap candidate firing."
+                return "Place two fingers on the blank area between button groups and move vertically together.\n   Required: continuous scroll; no tap candidate fires."
             case .b1_finderRowTap:
                 return "Touch a row in the Finder window normally and release.\n   Required: semantic row selection (AXSelected set to true), zero cursor movement."
             case .b2_finderRowSwipe:
-                return "Start a vertical swipe on a Finder row and drag beyond 18 pt.\n   Required: transitions to semanticPan, list scrolls via AXValue, NO release-time selection."
+                return "Place two fingers on a Finder row and scroll vertically.\n   Required: two-finger scroll starts; the remaining contact cannot become a tap if one finger lifts first."
             case .c1_textEditTap:
                 return "Touch inside the editable text document in TextEdit and release.\n   Required: semantic focus (AXFocused set to true), cursor untouched."
             case .c2_textEditSwipe:
-                return "Swipe vertically starting inside the TextEdit text area beyond 18 pt.\n   Required: focus action cancelled, document scrolls continuously, zero delayed action on release."
+                return "Place two fingers inside the TextEdit document and scroll vertically.\n   Required: document scrolls continuously; one-finger movement never becomes scrolling."
             case .d1_safariButtonTap:
                 return "Touch the button/link in Safari normally and release.\n   Required: semantic tap dispatches AXPress, DOM updates, zero cursor movement."
             case .d2_safariSwipeNegative:
-                return "Start a vertical swipe on the Safari button/link beyond 18 pt.\n   Required: possibleTap -> unsupportedPan -> release -> NO ACTION, zero wheel events, zero mouse events, zero cursor motion."
+                return "Move one finger on the Safari button/link beyond the touch slop.\n   Required: tap candidate is cancelled; no scroll, click, or delayed action is emitted."
             }
         }
     }
@@ -215,21 +215,21 @@ public final class LiveArbitrationValidator: NSObject, TouchBridgeRuntimeDelegat
         case .a1_stationaryButton:
             return session.state == .tapExecuted
         case .a2_swipeOnButton:
-            return session.state == .semanticPan
+            return session.state == .directPan || session.state == .momentum
         case .a3_blankAreaPan:
-            return session.state == .semanticPan
+            return session.state == .directPan || session.state == .momentum
         case .b1_finderRowTap:
             return session.state == .tapExecuted
         case .b2_finderRowSwipe:
-            return session.state == .semanticPan
+            return session.state == .directPan || session.state == .momentum
         case .c1_textEditTap:
             return session.state == .tapExecuted
         case .c2_textEditSwipe:
-            return session.state == .semanticPan
+            return session.state == .directPan || session.state == .momentum
         case .d1_safariButtonTap:
             return session.state == .tapExecuted
         case .d2_safariSwipeNegative:
-            return session.state == .unsupportedPan
+            return session.state == .cancelled(reason: "MOVEMENT_TOLERANCE_EXCEEDED")
         }
     }
     
@@ -252,7 +252,7 @@ public final class LiveArbitrationValidator: NSObject, TouchBridgeRuntimeDelegat
         
         if session.state == .tapExecuted {
             stationaryJitterSamples.append(session.maxMovementPt)
-        } else if let t = session.timeToPanSec, let m = session.movementAtPanTransitionPt {
+        } else if (session.state == .directPan || session.state == .momentum), let t = session.timeToPanSec, let m = session.movementAtPanTransitionPt {
             deliberatePanMeasurements.append([
                 "test": currentScenario.title,
                 "timeToPanMs": t * 1000.0,
@@ -283,9 +283,9 @@ public final class LiveArbitrationValidator: NSObject, TouchBridgeRuntimeDelegat
         case .a1_stationaryButton, .b1_finderRowTap, .c1_textEditTap, .d1_safariButtonTap:
             return "stationary tap (< 18.0 pt movement)"
         case .a2_swipeOnButton, .a3_blankAreaPan, .b2_finderRowSwipe, .c2_textEditSwipe:
-            return "vertical swipe (> 18.0 pt movement)"
+            return "two-finger vertical scroll"
         case .d2_safariSwipeNegative:
-            return "vertical swipe on Safari actionable element (> 18.0 pt movement)"
+            return "one-finger movement cancellation beyond touch slop"
         }
     }
     

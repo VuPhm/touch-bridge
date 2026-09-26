@@ -8,9 +8,9 @@
 **Binary Target:** `TouchBridgeProbe` (Swift native AppKit runtime)  
 **Target Hardware:** `USB2IIC_CTP_CONTROL` (`VID: 0x1A86`, `PID: 0xE5E3`, 6-finger Digitizer Collection)  
 **Target Display:** TYPE C 1280x960 External Touchscreen (`DisplayID: 79846407`, CG Bounds: `[1792.0, 160.0, 1280.0, 960.0]`)  
-**Automated Runtime & Gesture Suite:** 29/29 Passed (100%, 0 Failed)  
+**Automated Runtime & Gesture Suite:** See the latest candidate verification record below
 **HID Device Seize Status:** `kIOHIDOptionsTypeSeizeDevice` (Exclusive Ownership Confirmed)  
-**Pointer Isolation Guard:** 100% Inviolate (Delta = `0.00 pt`, Zero Mouse Warping)  
+**Pointer Isolation Guard:** measured per CG click; see candidate verification evidence
 
 > **Correction record:** The P3-03R statements below describe its first technical candidate and must not be read as implementation proof or owner verification. P3-03R.1 records the correctness fixes and the fresh evidence at the end of this document.
 
@@ -26,8 +26,8 @@ Following physical touchscreen testing of the initial P3-03 candidate, owner ver
 ### Architectural Pivot (P3-03R)
 Under the updated constraints:
 - **Input Ownership via Exclusive Seize**: TouchBridge exclusively seizes the digitizer interface (`0x0D:0x04`) via `IOHIDDeviceOpen(..., kIOHIDOptionsTypeSeizeDevice)`. macOS WindowServer digitizer routing is completely detached; TouchBridge is the sole consumer of touchscreen touches while active.
-- **Direct Touch Gesture Engine**: iPad-like direct manipulation where taps reliably activate targets and content strictly follows finger displacement.
-- **Multi-Backend Tap Execution**: Strict priority ordering: AX Focus → AX Selection → AX Press → Public CoreGraphics Primary Click fallback. Zero right-click synthesis.
+- **Two-Finger Scroll Gesture Engine**: One finger taps/selects/focuses; two fingers scroll. One-finger movement beyond touch slop cancels the tap and never scrolls.
+- **Semantic Tap Execution**: Resolve an actionable AX target, then use AXPress, meaningful selection, or editable text focus as its role allows. Unresolved taps stay unresolved by default; cursor-moving CG click is opt-in. Zero right-click synthesis.
 - **Continuous Pixel Scrolling & Kinetic Momentum**: Public CoreGraphics continuous pixel scroll wheel events (`units: .pixel`, `scrollPhase`, `momentumPhase`) with a 60 Hz exponential velocity decay engine ($\text{decay} = 0.94$). Any new touch down immediately interrupts momentum.
 - **Intentional Two-Finger Pan**: Two simultaneous contacts are recognized intentionally and tracked via centroid displacement rather than being dropped or leaked to macOS.
 - **Independent Mouse Usability**: External mice and trackpads remain 100% usable independently with zero interference and zero permanent cursor warping.
@@ -68,35 +68,31 @@ if seizeResult == kIOReturnSuccess {
 ## 3. Phase B — Direct Touch Gesture Engine
 
 ### 3.1 Gesture Finite State Machine
-The updated state machine in [`InteractionSession.swift`](file:///Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/InteractionSession.swift) and [`TouchGestureRecognizer.swift`](file:///Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/TouchGestureRecognizer.swift) guarantees iPad-like responsiveness:
+The product state machine in [`InteractionSession.swift`](file:///Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/InteractionSession.swift) and [`TouchGestureRecognizer.swift`](file:///Users/vup/Documents/agy/touch-bridge/Sources/TouchBridgeProbe/TouchGestureRecognizer.swift) uses one finger for taps and two fingers for scroll:
 
 ```text
-                           physical contact down
-                                     ↓
-                               [ possibleTap ]
-                              /               \
-                             /                 \
-                movement <= 18.0 pt        movement > 18.0 pt
-                & release (dur >= 15ms)         \
-                           ↓                     \
-                    [ tapExecuted ]               \
-                 (AXPress / Focus /       surface has scroll area?
-                  Selection / CGClick)         /            \
-                                             YES             NO
-                                             ↓                ↓
-                                       [ directPan ]   [ unsupportedPan ]
-                                       (CGScrollWheel) (suppressed)
-                                             ↓                ↓
-                                        release flick?      release
-                                        /            \        ↓
-                                     >= 60 pt/s    < 60 pt/s [ cancelled ]
-                                      /                \
-                                [ momentum ]        [ completed ]
-                                (decay 0.94)
-                                     |
-                       new touch / speed < 10 pt/s
-                                     ↓
-                                [ completed ]
+                    one physical contact down
+                              ↓
+                        [ POSSIBLE_TAP ] ←── small jitter (≤ touch slop)
+                         /           \
+       release within slop            movement > touch slop
+                 ↓                              ↓
+           [ TAP ]                    [ CANCELLED_MOVEMENT ]
+   semantic AX action first                no delayed action
+   unresolved stays unresolved
+
+           second contact appears
+                    ↓
+          [ TWO_FINGER_DIRECT_PAN ]
+          continuous CG pixel scroll
+             /                 \
+       one finger lifts       both contacts released
+             ↓                 ↓
+      end direct scroll   release velocity check
+      quarantine until       /           \
+      all contacts lift   ≥ 60 pt/s     < 60 pt/s
+                            ↓              ↓
+                       [ MOMENTUM ]    [ COMPLETE ]
 ```
 
 ### 3.2 State Definitions
@@ -104,18 +100,20 @@ The updated state machine in [`InteractionSession.swift`](file:///Users/vup/Docu
 | State | Entry Condition | Active Behavior | Release Behavior (`phase == .up`) |
 |---|---|---|---|
 | **`idle`** | Initial state / after session completion. | Zero contacts down. | N/A |
-| **`possibleTap`** | Single contact down (`phase == .down`). | Tracks position and displacement. Movements $\le 18.0\text{ pt}$ remain in candidate state. | If duration $\ge 15\text{ ms}$: transitions to **`tapExecuted`**.<br>If duration $< 15\text{ ms}$: cancels with `CONTACT_TOO_BRIEF` (noise filter).<br>*(No upper duration timeout; stationary holds qualify).* |
-| **`directPan`** | Movement $> 18.0\text{ pt}$ (or 2 fingers down). | **Permanently destroys tap candidate.** Posts continuous 1:1 pixel scrollwheel CGEvents. Content strictly follows finger. | If release speed $\ge 60\text{ pt/s}$: transitions to **`momentum`**.<br>If release speed $< 60\text{ pt/s}$: settles cleanly with scrollPhase `Ended`. |
-| **`momentum`** | Pan released with flick velocity. | 60 Hz timer decays velocity by $0.94^{\text{frame}}$, dispatching continuous momentum CGEvents. | Terminated when speed drops $< 10\text{ pt/s}$, OR immediately interrupted by any new touch contact down. |
-| **`unsupportedPan`**| Movement $> 18.0\text{ pt}$ on non-scrollable surface. | Action suppressed without synthetic events. | Terminates cleanly without delayed clicks. |
-| **`tapExecuted`** | Contact released cleanly within touch slop. | Dispatches capability-authorized action via AX or CoreGraphics left-click fallback. | Terminal state. |
-| **`cancelled`** | Noise glitch or session reset. | Suppressed without action. | Terminal state. |
+| **`possibleTap`** | One contact down. | Tracks jitter up to configurable `panThresholdPt` (initially 18 pt). | Clean release qualifies a tap; under 15 ms cancels as `CONTACT_TOO_BRIEF`. |
+| **`cancelled`** | One-finger movement exceeds touch slop, contact is too brief, or runtime resets. | Suppresses the tap; one-finger movement never starts scroll in product mode. | Terminal for that contact; no delayed click. |
+| **`directPan`** | A second contact appears while the tap candidate is active. | Rebases at the two-contact centroid and posts continuous CG pixel scroll events. | First finger lift ends direct scrolling. A sufficiently fast release can start momentum; remaining contact is quarantined until all contacts lift. |
+| **`momentum`** | Two-finger direct pan ends with release speed $\ge 60\text{ pt/s}$. | 60 Hz timer decays velocity by $0.94^{\text{frame}}$. | Ends below 10 pt/s; new contact after full release interrupts it. |
+| **`tapExecuted`** | Contact released cleanly within touch slop. | Tries authorized semantic AX action backends. | Terminal state. |
+| **`unsupportedPan`** | Two contacts start a pan but no scroll backend exists. | Suppressed without synthetic events. | Terminates cleanly without delayed clicks. |
 
 ### 3.3 Tap Qualification & Backend Hierarchy
-Taps are qualified purely by physical invariants:
+One-finger taps are qualified purely by physical invariants:
 - Contact began and ended cleanly;
 - Movement remained within touch slop ($|\Delta| \le 18.0\text{ pt}$);
-- Interaction was not promoted to pan.
+- A second contact did not promote the gesture to two-finger scroll.
+
+Product interaction semantics are intentional: tap with one finger; scroll with two fingers; one-finger drag is not navigation scrolling. Long press and context menu are future work. Custom surfaces without useful AX semantics may not support direct tap because cursor-moving CG fallback is disabled by default.
 
 At `tapExecuted`, TouchBridge resolves an actionable descendant from the raw AX hit using a bounded local walk (maximum depth 6, maximum 64 nodes, 30 ms traversal budget). It prefers the deepest actionable node whose AX frame contains the physical point; smaller frame area and traversal order break ties.
 
@@ -140,7 +138,7 @@ Tap diagnostics print the physical point, raw and resolved AX roles, traversal d
 - When finger stops moving, velocity immediately decays; zero drift occurs while stationary.
 
 ### 4.2 Release Flick & Kinetic Momentum
-- Upon release, speed $s = \sqrt{v_x^2 + v_y^2}$ is evaluated against `minFlickVelocityPtPerSec = 60.0 pt/s`.
+- When a two-finger direct scroll terminates, speed $s = \sqrt{v_x^2 + v_y^2}$ is evaluated against `minFlickVelocityPtPerSec = 60.0 pt/s`.
 - If $s < 60\text{ pt/s}$: Pan terminates immediately with `scrollPhase = 4` (`Ended`), settling content without coasting.
 - If $s \ge 60\text{ pt/s}$: Session enters `momentum` state:
   1. Closes direct touch phase with `scrollPhase = 4` (`Ended`).
@@ -226,13 +224,13 @@ The following 11 mandatory physical verification test scenarios are defined for 
 | **1** | 20 Single Taps on Controls | Finder | Tap 20 different sidebar items or folder rows stationary. | 20/20 rows selected cleanly. Zero missed taps, zero right clicks, cursor unmoved. |
 | **2** | 20 Single Taps on Controls | TextEdit | Tap 20 different toolbar buttons or text insertion points. | Direct focus / button press. Zero cursor warping. |
 | **3** | 20 Webpage Link/Button Taps | Safari | Tap 20 links or buttons on a complex web page. | Links navigate cleanly via CG primary click fallback. Zero right clicks. |
-| **4** | 1-Finger Slow Scroll | Safari / Finder / TextEdit | Slowly drag finger vertically across scrollable content. | Content stays glued 1:1 to finger. Dispatches continuous pixel scroll. Zero snap-back. |
-| **5** | 1-Finger Fast Flick | Safari / TextEdit | Flick finger quickly vertically and release. | Content coasts smoothly with exponential velocity decay ($0.94^{\text{frame}}$). |
-| **6** | Pan → Stop while Finger Down | Safari / TextEdit | Drag content, stop moving, and hold finger still for 2 seconds. | Content halts immediately with zero jitter/drift. Zero delayed click on release. |
-| **7** | Pan → Release → Momentum | Safari / Finder | Flick scrollable content into momentum. | Smooth deceleration to natural rest. |
+| **4** | One-Finger Drag Cancellation | Safari / Finder / TextEdit | Move one finger beyond the touch slop, then release. | Tap is cancelled; content does not scroll; no delayed action. |
+| **5** | Two-Finger Slow Scroll | Safari / Finder / TextEdit | Place two fingers down and move vertically together. | Continuous pixel scroll tracks the centroid. |
+| **6** | Two-Finger Stop while Down | Safari / TextEdit | Scroll with two fingers, stop, and hold for 2 seconds. | Content halts without jitter/drift. No tap on release. |
+| **7** | Two-Finger Release Momentum | Safari / Finder | Flick scroll with two fingers and lift. | Smooth deceleration to natural rest. |
 | **8** | Touch During Momentum | Safari / Finder | Flick into momentum, then touch the screen while content is still coasting. | Momentum immediately freezes at touch location. |
 | **9** | 2-Finger Pan | Safari / TextEdit | Place two fingers down and drag together. | Smooth continuous scroll tracking centroid. No Mission Control/Desktop gestures triggered. |
-| **10**| Rapid Alternating Tap/Pan | Testbed / Finder | Alternate rapidly between quick taps and short drags. | Every tap activates target; every drag scrolls. Zero state carryover. |
+| **10**| Rapid Alternating Tap/Scroll | Testbed / Finder | Alternate one-finger taps with separate two-finger scroll gestures. | Taps activate available semantic targets; scroll uses two fingers; no state carryover. |
 | **11**| External Mouse Coexistence | System-Wide | Move and click external mouse immediately after touchscreen interaction. | Mouse responds normally, pointer unmoved by touch, zero fighting between inputs. |
 
 ---
@@ -258,7 +256,7 @@ This section corrects defects found in the first P3-03R technical candidate. The
 - Exclusive seize eligibility now requires target VID `0x1A86`, PID `0xE5E3`, nonzero `IOHIDLocationID`, top-level usage page `0x0D`, and usage `0x04`. VID/PID matching alone never broadens the usage check. Device input callbacks are installed only on the qualified, seized device.
 - A failed `IOHIDDeviceOpen(..., kIOHIDOptionsTypeSeizeDevice)` records an ownership error, leaves `isExclusivelySeized` false, installs no input callback, and does not publish the device as available. Interaction is disabled; there is no shared-mode fallback.
 - AX semantic scrolling and CoreGraphics pixel scrolling are separate capabilities. CG scrolling allows a drag to enter `DIRECT_PAN` when AX exposes no scroll area, including WebKit-style surfaces. No app-name routing is used.
-- Contact topology changes rebase the movement point and clear instantaneous and filtered velocity. A 1-to-2 change preserves an established pan; a 2-to-1 change rebinds the remaining contact, whichever contact lifted, without restarting the session or reviving tap eligibility.
+- A second contact promotes an eligible one-finger tap candidate to a two-finger pan and rebases at the centroid. When either finger lifts, direct scrolling ends. The remaining contacts are quarantined until all lift, so they cannot continue as a one-finger scroller or create a tap.
 - CG primary click evidence now stores the actual before/after cursor samples and invariant result. The runtime test posted the required left down/up at a point-targeted location and observed `0.000 pt` cursor delta on this host. This is one machine observation, not a guarantee across macOS configurations.
 - Public CoreGraphics scroll events set pixel units, `scrollWheelEventIsContinuous = 1`, direct scroll phase, momentum phase, integer wheel delta, fixed-point pixel delta, and point pixel delta. The first direct and momentum events report those fields in diagnostics.
 - Finger-down smoothing is distinct from release momentum. It uses a 1/60 s frame interval, 80 ms maximum duration, 0.45 per-frame velocity decay, and 4 pt total-distance cap. New movement cancels the tail; release flick momentum retains its existing behavior and is interrupted by a new touch.
@@ -270,3 +268,16 @@ This section corrects defects found in the first P3-03R technical candidate. The
 - Build: `swift build` succeeded. It reports pre-existing Swift warnings in `RuntimeValidator.swift` and `RollbackReproducer.swift`.
 - Implementation assumptions: IOHID exposes the target top-level collection through `kIOHIDPrimaryUsagePageKey` / `kIOHIDPrimaryUsageKey`; continuous pixel scroll events are accepted by target applications; this host's CG click cursor observation represents posted events.
 - Owner physical verification remains pending: touchscreen seize and normal mouse coexistence, click activation, one- and two-finger tracking, Safari/WebKit scroll, finger-down settling feel, release momentum, and suppression of system gestures must be checked on the actual touchscreen/display setup. Automated results do not claim UX success.
+
+## 10. P3-03R.2 — One-Finger Tap, Two-Finger Scroll Product Model
+
+This candidate intentionally changes the interaction contract for convenience and predictability on macOS:
+
+- One finger selects, focuses, or activates a semantic tap target. Jitter within the configurable touch slop (initially 18 pt) is tolerated. Movement beyond it cancels the tap and emits no scroll or delayed click.
+- Two fingers start scrolling immediately at their centroid through CoreGraphics continuous pixel events. Existing smoothing and kinetic release momentum remain attached to this two-finger path.
+- When a two-finger gesture loses one contact, direct scrolling ends. The remaining contact cannot scroll or tap; every contact must lift before a fresh gesture begins.
+- AX semantic activation remains preferred. Unresolved targets stay unresolved by default; cursor-moving CoreGraphics click is an explicit compatibility option.
+- Long press and context menu are future work. Custom surfaces without useful AX semantics may not support direct tap.
+- The old one-finger pan transition is available only through the diagnostic experimental option, which is disabled in product mode.
+
+This behavior is a deliberate compatibility trade-off, not a temporary bug. The automated suite checks routing and event selection; physical tap, scroll, cursor isolation, and momentum behavior still require owner verification on the target hardware.
