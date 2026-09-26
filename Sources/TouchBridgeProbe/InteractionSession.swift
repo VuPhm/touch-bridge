@@ -74,6 +74,33 @@ public struct GestureArbitrationConfig {
     public static var minFlickVelocityPtPerSec: Double = 60.0
     public static var momentumDecayFactor: Double = 0.94
     public static var minMomentumVelocityPtPerSec: Double = 10.0
+
+    /// Finger-down smoothing is intentionally separate from release momentum.
+    public static let fingerDownSmoothingFrameIntervalSec: Double = 1.0 / 60.0
+    public static let fingerDownSmoothingMaxDurationSec: Double = 0.080
+    public static let fingerDownSmoothingDecayFactor: Double = 0.45
+    public static let fingerDownSmoothingMaxDistancePt: Double = 4.0
+}
+
+public struct FingerDownSmoothingTail {
+    private var velocityY: Double
+    private var elapsed: Double = 0
+    private var distance: Double = 0
+
+    public init(velocityY: Double) { self.velocityY = velocityY }
+
+    public mutating func nextDeltaY() -> Double? {
+        let dt = GestureArbitrationConfig.fingerDownSmoothingFrameIntervalSec
+        guard elapsed < GestureArbitrationConfig.fingerDownSmoothingMaxDurationSec,
+              distance < GestureArbitrationConfig.fingerDownSmoothingMaxDistancePt else { return nil }
+        let remaining = GestureArbitrationConfig.fingerDownSmoothingMaxDistancePt - distance
+        let delta = min(abs(velocityY) * dt, remaining) * (velocityY < 0 ? -1 : 1)
+        guard abs(delta) > 0.001 else { return nil }
+        distance += abs(delta)
+        elapsed += dt
+        velocityY *= GestureArbitrationConfig.fingerDownSmoothingDecayFactor
+        return delta
+    }
 }
 
 /// Actions emitted during gesture transition evaluation.
@@ -87,7 +114,7 @@ public enum GestureTransitionAction {
 /// Represents one explicit physical contact session (P3-02 Section 2 & P3-03R).
 public final class InteractionSession {
     public let id: String
-    public let contactID: Int
+    public private(set) var contactID: Int
     public var contactCount: Int = 1
     public var secondaryContactID: Int? = nil
     public var allowCGScrollFallback: Bool = true
@@ -134,6 +161,7 @@ public final class InteractionSession {
     public private(set) var delayedTapEmitted: Bool = false
     public var cursorBefore: CGPoint = .zero
     public var cursorAfter: CGPoint = .zero
+    public var pointerIsolationSatisfied: Bool? = nil
     public var tapActionResult: String = "None"
     public var panActionResult: String = "None"
     public var transitionDescription: String = "possibleTap"
@@ -277,11 +305,16 @@ public final class InteractionSession {
     
     /// Immediate promotion to two-finger pan when a secondary contact arrives (P3-03R Phase B).
     public func promoteToTwoFingerPan(centroid: CGPoint, now: Date = Date()) {
-        guard state == .possibleTap else { return }
+        guard state == .possibleTap || state == .directPan else { return }
+        let wasAlreadyPanning = state == .directPan
         self.contactCount = 2
-        self.timeToPanSec = now.timeIntervalSince(startTimeDate)
+        if !wasAlreadyPanning { self.timeToPanSec = now.timeIntervalSince(startTimeDate) }
         self.movementAtPanTransitionPt = currentMovementPt
-        if hasValidContinuousScrollBackend() {
+        rebaseMotion(point: centroid, now: now)
+        if wasAlreadyPanning {
+            transitionDescription = "directPan -> directPan (two-finger rebase)"
+            panActionResult = "Two-finger direct-touch pan active"
+        } else if hasValidContinuousScrollBackend() {
             state = .directPan
             transitionDescription = "possibleTap -> directPan (two-finger)"
             panActionResult = "Two-finger direct-touch pan active"
@@ -295,6 +328,25 @@ public final class InteractionSession {
             transitionDescription = "possibleTap -> unsupportedPan (two-finger)"
             panActionResult = "Unsupported two-finger pan suppressed"
         }
+    }
+
+    public func rebindActiveContact(_ id: Int, point: CGPoint, now: Date = Date()) {
+        contactID = id
+        secondaryContactID = nil
+        contactCount = 1
+        rebaseMotion(point: point, now: now)
+        if state == .directPan {
+            transitionDescription = "directPan -> directPan (single-contact rebase)"
+        }
+    }
+
+    private func rebaseMotion(point: CGPoint, now: Date) {
+        let rebased = GlobalDisplayPoint(cgGlobal: point)
+        latestGlobalPoint = rebased
+        instantaneousVelocity = .zero
+        filteredVelocity = .zero
+        lastSamplePoint = point
+        lastSampleTimeDate = now
     }
     
     public func markMomentumStarted() {
@@ -321,11 +373,10 @@ public final class InteractionSession {
     }
     
     public func hasValidContinuousScrollBackend() -> Bool {
+        // AX semantic scrolling and CG compatibility scrolling are independent capabilities.
+        if allowCGScrollFallback { return true }
         if let ctx = context {
             if ctx.scrollCapability.hasScrollArea && ctx.scrollBarElement != nil && ctx.scrollCapability.isVerticalValueSettable {
-                return true
-            }
-            if ctx.scrollCapability.hasScrollArea && allowCGScrollFallback {
                 return true
             }
         }
@@ -466,6 +517,7 @@ public final class InteractionSession {
           before: (\(String(format: "%.1f", cursorBefore.x)), \(String(format: "%.1f", cursorBefore.y)))
           after: (\(String(format: "%.1f", cursorAfter.x)), \(String(format: "%.1f", cursorAfter.y)))
           delta: \(String(format: "%.2f", curDelta)) pt
+          CG click isolation result: \(pointerIsolationSatisfied.map { $0 ? "PASS" : "FAIL" } ?? "NOT MEASURED")
         """
     }
 }

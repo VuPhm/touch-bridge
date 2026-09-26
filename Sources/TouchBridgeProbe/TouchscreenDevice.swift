@@ -13,6 +13,12 @@ public final class TouchscreenDevice {
     public static let targetVendorID: Int = 0x1A86  // 6790 (wch.cn)
     public static let targetProductID: Int = 0xE5E3 // 58851 (USB2IIC_CTP_CONTROL)
     public static let targetNameHint: String = "USB2IIC_CTP_CONTROL"
+
+    public static func isEligibleForExclusiveSeize(vendorID: Int, productID: Int, locationID: Int, usagePage: UInt32, usage: UInt32) -> Bool {
+        vendorID == targetVendorID && productID == targetProductID && locationID != 0 && usagePage == 0x0D && usage == 0x04
+    }
+
+    public static func interactionAllowedAfterSeize(seizeSucceeded: Bool) -> Bool { seizeSucceeded }
     
     public weak var delegate: TouchscreenDeviceDelegate?
     
@@ -30,6 +36,9 @@ public final class TouchscreenDevice {
     public private(set) var primaryUsagePage: UInt32 = 0
     public private(set) var primaryUsage: UInt32 = 0
     public private(set) var isExclusivelySeized: Bool = false
+    public var ownershipDiagnosticState: String {
+        isExclusivelySeized ? "exclusive touchscreen digitizer ownership active" : "unavailable: exclusive touchscreen ownership not established"
+    }
     
     public init() {}
     
@@ -70,14 +79,6 @@ public final class TouchscreenDevice {
         }
         IOHIDManagerRegisterDeviceRemovalCallback(manager, removalCallback, context)
         
-        // Raw Input Value Stream
-        let inputCallback: IOHIDValueCallback = { context, result, sender, value in
-            guard let context = context else { return }
-            let selfRef = Unmanaged<TouchscreenDevice>.fromOpaque(context).takeUnretainedValue()
-            selfRef.handleInputValue(value)
-        }
-        IOHIDManagerRegisterInputValueCallback(manager, inputCallback, context)
-        
         // Schedule on Main RunLoop CommonModes for uninterrupted tracking during menu interactions
         IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
         
@@ -96,8 +97,6 @@ public final class TouchscreenDevice {
         
         IOHIDManagerRegisterDeviceMatchingCallback(manager, nil, nil)
         IOHIDManagerRegisterDeviceRemovalCallback(manager, nil, nil)
-        IOHIDManagerRegisterInputValueCallback(manager, nil, nil)
-        
         IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
         IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         
@@ -115,8 +114,6 @@ public final class TouchscreenDevice {
     }
     
     private func handleDeviceConnected(_ device: IOHIDDevice) {
-        self.activeDevice = device
-        
         // Read device identity properties
         let prodName = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? TouchscreenDevice.targetNameHint
         let vid = (IOHIDDeviceGetProperty(device, kIOHIDVendorIDKey as CFString) as? Int) ?? TouchscreenDevice.targetVendorID
@@ -129,42 +126,30 @@ public final class TouchscreenDevice {
         self.locationID = loc
         self.primaryUsagePage = uPage
         self.primaryUsage = usage
+
+        guard Self.isEligibleForExclusiveSeize(vendorID: vid, productID: pid, locationID: loc, usagePage: uPage, usage: usage) else {
+            TouchBridgeLogger.warning(.hid, "Ignoring matched HID interface that is not the target touchscreen digitizer top-level collection (VID/PID (vid):(pid), usage (uPage):(usage)).")
+            return
+        }
+        self.activeDevice = device
         
         // P3-03R Phase A: Establish Input Ownership via exclusive seize on touchscreen digitizer interface
         // Requirements:
-        // - Seize ONLY touchscreen digitizer (VID 0x1A86, PID 0xE5E3, Usage Page 0x0D);
+        // - Seize ONLY touchscreen digitizer (VID 0x1A86, PID 0xE5E3, Usage Page 0x0D, Usage 0x04);
         // - Do NOT seize unrelated keyboard/mouse/control interfaces;
         // - Log vendor ID, product ID, location ID, usage page, usage;
-        // - Safe fallback path if exclusive access cannot be obtained;
+        // - Fail closed if exclusive access cannot be obtained;
         // - Release cleanly on disconnect/termination.
-        let isDigitizer = (uPage == 0x0D) || (vid == TouchscreenDevice.targetVendorID && pid == TouchscreenDevice.targetProductID)
-        
-        if isDigitizer {
-            let seizeRes = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
-            if seizeRes == kIOReturnSuccess {
-                self.isExclusivelySeized = true
-                TouchBridgeLogger.info(
-                    .hid,
-                    "[INPUT_OWNERSHIP] Successfully EXCLUSIVELY SEIZED touchscreen digitizer interface: \"\(prodName)\" (VID: 0x\(String(format: "%04X", vid)), PID: 0x\(String(format: "%04X", pid)), Loc: 0x\(String(format: "%08X", loc)), Page: 0x\(String(format: "%02X", uPage)), Usage: 0x\(String(format: "%02X", usage)))"
-                )
-            } else {
-                self.isExclusivelySeized = false
-                TouchBridgeLogger.warning(
-                    .hid,
-                    "[INPUT_OWNERSHIP] Could not obtain exclusive seize (0x\(String(format: "%08X", seizeRes))). Falling back to shared open..."
-                )
-                let devOpenRes = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
-                if devOpenRes != kIOReturnSuccess && devOpenRes != kIOReturnStillOpen {
-                    TouchBridgeLogger.warning(.hid, "IOHIDDeviceOpen returned 0x\(String(format: "%08X", devOpenRes))")
-                }
-            }
-        } else {
+        let seizeRes = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeSeizeDevice))
+        guard Self.interactionAllowedAfterSeize(seizeSucceeded: seizeRes == kIOReturnSuccess) else {
             self.isExclusivelySeized = false
-            let devOpenRes = IOHIDDeviceOpen(device, IOOptionBits(kIOHIDOptionsTypeNone))
-            if devOpenRes != kIOReturnSuccess && devOpenRes != kIOReturnStillOpen {
-                TouchBridgeLogger.warning(.hid, "IOHIDDeviceOpen returned 0x\(String(format: "%08X", devOpenRes))")
-            }
+            let reason = "Exclusive touchscreen ownership unavailable: IOHIDDeviceOpen(seize) failed 0x\(String(format: "%08X", seizeRes)); interaction disabled."
+            TouchBridgeLogger.error(.hid, "[INPUT_OWNERSHIP] \(reason)")
+            transition(to: .error(reason))
+            return
         }
+        self.isExclusivelySeized = true
+        TouchBridgeLogger.info(.hid, "[INPUT_OWNERSHIP] Successfully EXCLUSIVELY SEIZED touchscreen digitizer interface: \"\(prodName)\" (VID: 0x\(String(format: "%04X", vid)), PID: 0x\(String(format: "%04X", pid)), Loc: 0x\(String(format: "%08X", loc)), Page: 0x\(String(format: "%02X", uPage)), Usage: 0x\(String(format: "%02X", usage)))")
         
         // Register input value callback directly on the device as well to guarantee delivery
         let devContext = Unmanaged.passUnretained(self).toOpaque()
@@ -198,7 +183,7 @@ public final class TouchscreenDevice {
     }
     
     private func handleInputValue(_ value: IOHIDValue) {
-        guard deviceState.isConnected else { return }
+        guard deviceState.isConnected, isExclusivelySeized else { return }
         delegate?.touchscreenDevice(self, didReceiveRawElement: value)
     }
     

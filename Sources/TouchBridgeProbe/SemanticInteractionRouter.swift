@@ -28,11 +28,17 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
     private var momentumTimer: Timer? = nil
     private var activeMomentumSession: InteractionSession? = nil
     private var currentMomentumVelocity: CGVector = .zero
+    private var fingerDownSmoothingTimer: Timer? = nil
+    private var fingerDownSmoothingTail: FingerDownSmoothingTail? = nil
+    private var lastDirectPanVelocityY: Double = 0
+    private var loggedDirectScrollFields = false
+    private var loggedMomentumFields = false
     
     public init() {}
     
     deinit {
         haltMomentum()
+        haltFingerDownSmoothing()
     }
     
     // MARK: - TouchGestureRecognizerDelegate
@@ -68,6 +74,9 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
     
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didStartPanWithSession session: InteractionSession) {
         haltMomentum()
+        haltFingerDownSmoothing()
+        lastDirectPanVelocityY = 0
+        loggedDirectScrollFields = false
         
         guard userIntent == .enabled else {
             TouchBridgeLogger.info(.semantic, "Pan gesture observed, but interaction is SUPPRESSED (UserIntent is DISABLED).")
@@ -75,6 +84,11 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
         }
         
         let appName = session.context?.applicationName ?? "Application"
+        if preferContinuousCGScroll || session.context?.scrollBarElement == nil {
+            session.panActionResult = "DIRECT_PAN -> CG_SCROLL_WHEEL (public continuous pixel events)"
+        } else {
+            session.panActionResult = "DIRECT_PAN -> AX_SCROLL_VALUE"
+        }
         TouchBridgeLogger.info(
             .semantic,
             "Direct Pan STARTED on [\(appName)] (Contacts: \(session.contactCount))"
@@ -89,6 +103,15 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
     
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didUpdatePanDeltaWithSession session: InteractionSession, deltaPixels: CGVector) {
         guard userIntent == .enabled else { return }
+
+        if abs(deltaPixels.dy) > 0.01 {
+            haltFingerDownSmoothing()
+            lastDirectPanVelocityY = session.filteredVelocity.dy
+        } else if fingerDownSmoothingTimer == nil, abs(lastDirectPanVelocityY) > 1 {
+            fingerDownSmoothingTail = FingerDownSmoothingTail(velocityY: lastDirectPanVelocityY)
+            lastDirectPanVelocityY = 0
+            startFingerDownSmoothing(session: session)
+        }
         
         if preferContinuousCGScroll || session.context?.scrollBarElement == nil {
             postScrollWheelEvent(location: session.latestGlobalPoint.cgGlobal, deltaY: deltaPixels.dy, phase: 2, momentumPhase: 0)
@@ -140,6 +163,7 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didCompletePanWithSession session: InteractionSession) {
         guard userIntent == .enabled else { return }
         haltMomentum()
+        haltFingerDownSmoothing()
         
         if preferContinuousCGScroll || session.context?.scrollBarElement == nil {
             postScrollWheelEvent(location: session.latestGlobalPoint.cgGlobal, deltaY: 0, phase: 4, momentumPhase: 0)
@@ -165,6 +189,7 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didEnterMomentumWithSession session: InteractionSession, initialVelocity: CGVector) {
         guard userIntent == .enabled else { return }
         haltMomentum()
+        haltFingerDownSmoothing()
         
         // 1. Terminate the touch phase
         postScrollWheelEvent(location: session.latestGlobalPoint.cgGlobal, deltaY: 0, phase: 4, momentumPhase: 0)
@@ -172,6 +197,7 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
         // 2. Start kinetic momentum
         self.activeMomentumSession = session
         self.currentMomentumVelocity = initialVelocity
+        loggedMomentumFields = false
         
         let dt: Double = 0.016
         let initialStep = initialVelocity.dy * dt
@@ -210,6 +236,7 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
     }
     
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didInterruptMomentumWithSession session: InteractionSession) {
+        haltFingerDownSmoothing()
         if let active = activeMomentumSession {
             haltMomentum()
             postScrollWheelEvent(location: active.latestGlobalPoint.cgGlobal, deltaY: 0, phase: 0, momentumPhase: 4)
@@ -393,13 +420,15 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
         executeCoreGraphicsPrimaryClick(point: session.startGlobalPoint.cgGlobal, session: session)
     }
     
-    private func executeCoreGraphicsPrimaryClick(point: CGPoint, session: InteractionSession) {
+    func executeCoreGraphicsPrimaryClick(point: CGPoint, session: InteractionSession) {
         let cursorBefore = SafetyInvariants.currentCursorPosition()
         
         guard let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: point, mouseButton: .left),
               let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: point, mouseButton: .left) else {
             TouchBridgeLogger.error(.semantic, "Failed to synthesize CGEvent left click at (\(point.x), \(point.y))")
             session.tapActionResult = "Failed to create CGEvent left click"
+            session.pointerIsolationSatisfied = false
+            delegate?.semanticRouter(self, didUpdateFeedback: "CG click event creation failed", invariantPassed: false)
             delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
             return
         }
@@ -409,8 +438,14 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
         up.post(tap: .cghidEventTap)
         
         let cursorAfter = SafetyInvariants.currentCursorPosition()
+        let (isolationSatisfied, cursorDelta) = SafetyInvariants.assertPointerIsolation(
+            cursorBefore: cursorBefore,
+            cursorAfter: cursorAfter,
+            context: "CoreGraphics Primary Click"
+        )
         session.cursorBefore = cursorBefore
         session.cursorAfter = cursorAfter
+        session.pointerIsolationSatisfied = isolationSatisfied
         let role = session.context?.hitNode.role ?? "None"
         session.tapActionResult = "CGPrimaryClick Fallback at (\(String(format: "%.1f, %.1f", point.x, point.y))) [\(role)]"
         
@@ -418,7 +453,8 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
             .semantic,
             "Capability Authorized [TAP_CG_FALLBACK] -> Dispatched CG Primary Left Click at (\(String(format: "%.1f, %.1f", point.x, point.y))) [Target: \(role)]"
         )
-        delegate?.semanticRouter(self, didUpdateFeedback: "Tap -> CG Click (\(String(format: "%.0f, %.0f", point.x, point.y)))", invariantPassed: true)
+        TouchBridgeLogger.info(.semantic, "CG primary click pointer-isolation evidence: \(isolationSatisfied ? "PASS" : "FAIL") (cursor delta \(String(format: "%.3f", cursorDelta)) pt).")
+        delegate?.semanticRouter(self, didUpdateFeedback: "Tap -> CG Click (\(String(format: "%.0f, %.0f", point.x, point.y)))", invariantPassed: isolationSatisfied)
         delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
     }
     
@@ -433,14 +469,43 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
         ) else { return }
         
         event.location = location
-        if phase != 0 {
-            event.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
-        }
-        if momentumPhase != 0 {
-            event.setIntegerValueField(.scrollWheelEventMomentumPhase, value: momentumPhase)
-        }
+        event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+        event.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
+        event.setIntegerValueField(.scrollWheelEventMomentumPhase, value: momentumPhase)
+        event.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: Int64(round(deltaY)))
+        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: deltaY)
         event.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: deltaY)
+        if (!loggedDirectScrollFields && phase == 2 && momentumPhase == 0 && abs(deltaY) > 0.001) || (!loggedMomentumFields && momentumPhase == 1) {
+            if momentumPhase == 1 { loggedMomentumFields = true } else { loggedDirectScrollFields = true }
+            TouchBridgeLogger.info(.semantic, "CG_SCROLL_WHEEL fields: units=pixel continuous=1 scrollPhase=\(phase) momentumPhase=\(momentumPhase) wheelDeltaY=\(Int32(round(deltaY))) fixedPixelDeltaY=\(String(format: "%.3f", deltaY)) pointPixelDeltaY=\(String(format: "%.3f", deltaY))")
+        }
         event.post(tap: .cghidEventTap)
+    }
+
+    private func startFingerDownSmoothing(session: InteractionSession) {
+        let dt = GestureArbitrationConfig.fingerDownSmoothingFrameIntervalSec
+        fingerDownSmoothingTimer = Timer.scheduledTimer(withTimeInterval: dt, repeats: true) { [weak self, weak session] timer in
+            guard let self, let session, var tail = self.fingerDownSmoothingTail,
+                  session.state == .directPan else {
+                timer.invalidate()
+                self?.haltFingerDownSmoothing()
+                return
+            }
+            guard let delta = tail.nextDeltaY() else {
+                self.haltFingerDownSmoothing()
+                return
+            }
+            self.fingerDownSmoothingTail = tail
+            if self.preferContinuousCGScroll {
+                self.postScrollWheelEvent(location: session.latestGlobalPoint.cgGlobal, deltaY: delta, phase: 2, momentumPhase: 0)
+            }
+        }
+    }
+
+    private func haltFingerDownSmoothing() {
+        fingerDownSmoothingTimer?.invalidate()
+        fingerDownSmoothingTimer = nil
+        fingerDownSmoothingTail = nil
     }
     
     private func haltMomentum() {

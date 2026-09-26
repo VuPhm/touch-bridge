@@ -139,13 +139,16 @@ public final class TouchGestureRecognizer {
             } else if let session = activeSession, activeContacts.count == 2 {
                 // Secondary Contact Down (C2) -> Transition intentionally to TWO-FINGER DIRECT_PAN (P3-03R Phase B)
                 session.secondaryContactID = sample.contactID
+                let alreadyPanning = session.state == .directPan
                 let points = activeContacts.values.map { $0.currentPoint.cgGlobal }
                 let centroid = CGPoint(
                     x: (points[0].x + points[1].x) / 2.0,
                     y: (points[0].y + points[1].y) / 2.0
                 )
                 session.promoteToTwoFingerPan(centroid: centroid, now: now)
-                delegate?.gestureRecognizer(self, didStartPanWithSession: session)
+                if !alreadyPanning {
+                    delegate?.gestureRecognizer(self, didStartPanWithSession: session)
+                }
             } else {
                 TouchBridgeLogger.debug(.gesture, "Additional contact tracked (Total: \(activeContacts.count), ID=\(sample.contactID)).")
             }
@@ -219,8 +222,12 @@ public final class TouchGestureRecognizer {
             
             guard let session = activeSession else { return }
             
-            // If secondary contact lifts during 2-finger pan, stay in pan with remaining contact
             if activeContacts.count > 0 {
+                if session.contactCount >= 2, let remaining = activeContacts.values.first {
+                    // Rebind whichever physical contact remains. Both lift orders preserve the
+                    // locked directPan and establish a zero-velocity, zero-delta baseline.
+                    session.rebindActiveContact(remaining.contactID, point: remaining.currentPoint.cgGlobal, now: now)
+                }
                 TouchBridgeLogger.debug(.gesture, "Contact lifted (Remaining: \(activeContacts.count)). Continuing session.")
                 return
             }

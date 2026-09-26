@@ -12,6 +12,8 @@
 **HID Device Seize Status:** `kIOHIDOptionsTypeSeizeDevice` (Exclusive Ownership Confirmed)  
 **Pointer Isolation Guard:** 100% Inviolate (Delta = `0.00 pt`, Zero Mouse Warping)  
 
+> **Correction record:** The P3-03R statements below describe its first technical candidate and must not be read as implementation proof or owner verification. P3-03R.1 records the correctness fixes and the fresh evidence at the end of this document.
+
 ---
 
 ## 1. Executive Summary & Root Cause Diagnostic
@@ -243,3 +245,27 @@ Milestone **P3-03R** resolves all defects identified in the physical verificatio
 - Kinetic momentum engine provides iPad-grade direct manipulation with clean touch interruption.
 
 P3-03R is complete as a technical candidate ready for final physical owner verification.
+
+---
+
+## 9. P3-03R.1 — Correctness Gate Before Physical Verification
+
+This section corrects defects found in the first P3-03R technical candidate. The earlier claims of unconditional exclusive ownership and universal scroll support were assumptions in that candidate; they were not evidence that the implementation had qualified the actual top-level HID usage or worked on non-AX surfaces.
+
+### Corrected implementation
+
+- Exclusive seize eligibility now requires target VID `0x1A86`, PID `0xE5E3`, nonzero `IOHIDLocationID`, top-level usage page `0x0D`, and usage `0x04`. VID/PID matching alone never broadens the usage check. Device input callbacks are installed only on the qualified, seized device.
+- A failed `IOHIDDeviceOpen(..., kIOHIDOptionsTypeSeizeDevice)` records an ownership error, leaves `isExclusivelySeized` false, installs no input callback, and does not publish the device as available. Interaction is disabled; there is no shared-mode fallback.
+- AX semantic scrolling and CoreGraphics pixel scrolling are separate capabilities. CG scrolling allows a drag to enter `DIRECT_PAN` when AX exposes no scroll area, including WebKit-style surfaces. No app-name routing is used.
+- Contact topology changes rebase the movement point and clear instantaneous and filtered velocity. A 1-to-2 change preserves an established pan; a 2-to-1 change rebinds the remaining contact, whichever contact lifted, without restarting the session or reviving tap eligibility.
+- CG primary click evidence now stores the actual before/after cursor samples and invariant result. The runtime test posted the required left down/up at a point-targeted location and observed `0.000 pt` cursor delta on this host. This is one machine observation, not a guarantee across macOS configurations.
+- Public CoreGraphics scroll events set pixel units, `scrollWheelEventIsContinuous = 1`, direct scroll phase, momentum phase, integer wheel delta, fixed-point pixel delta, and point pixel delta. The first direct and momentum events report those fields in diagnostics.
+- Finger-down smoothing is distinct from release momentum. It uses a 1/60 s frame interval, 80 ms maximum duration, 0.45 per-frame velocity decay, and 4 pt total-distance cap. New movement cancels the tail; release flick momentum retains its existing behavior and is interrupted by a new touch.
+
+### Evidence and remaining gate
+
+- Automated suite: 39 checks, 35 passed on this host. The 4 failures are environmental checks for Accessibility permission and a bound external display (Tests 5, 6, 7, and 9); they do not establish physical interaction success. The revised non-AX pan checks and all 10 P3-03R.1 focused checks passed.
+- The pasted 29/29 baseline was not reproduced in this run: four earlier lifecycle/hardware checks remain unavailable because this host run has no Accessibility permission and no bound external display. This discrepancy is recorded rather than reported as a code regression or hidden by relaxing those checks.
+- Build: `swift build` succeeded. It reports pre-existing Swift warnings in `RuntimeValidator.swift` and `RollbackReproducer.swift`.
+- Implementation assumptions: IOHID exposes the target top-level collection through `kIOHIDPrimaryUsagePageKey` / `kIOHIDPrimaryUsageKey`; continuous pixel scroll events are accepted by target applications; this host's CG click cursor observation represents posted events.
+- Owner physical verification remains pending: touchscreen seize and normal mouse coexistence, click activation, one- and two-finger tracking, Safari/WebKit scroll, finger-down settling feel, release momentum, and suppression of system gestures must be checked on the actual touchscreen/display setup. Automated results do not claim UX success.
