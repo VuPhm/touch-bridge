@@ -21,6 +21,7 @@ func printHelp() {
       --test-runtime      Run automated runtime, gesture arbitration, and tap routing validation suite.
       --request-accessibility  Request macOS Accessibility permission for TouchBridgeProbe, then exit.
       --live-diagnostics  Run real-time P3-03R live diagnostic telemetry stream (contacts, speed, backend, seize).
+      --tap-backend <mode> Select one-finger tap actuation: semantic (default) or transient-pointer.
       --verify-arbitration Run live physical tap-vs-pan arbitration validation across all scenarios.
       --verify-gating     Run live hardware Enable/Disable gating verification.
       --verify-hotplug    Run live hardware USB hot-plug disconnect/reconnect verification.
@@ -355,6 +356,18 @@ func main() {
         printHelp()
         exit(0)
     }
+
+    var tapBackendMode: TapBackendMode = .semantic
+    if let backendIndex = args.firstIndex(of: "--tap-backend") {
+        guard backendIndex + 1 < args.count, let parsed = TapBackendMode(rawValue: args[backendIndex + 1]) else {
+            fputs("[ERROR] --tap-backend must be semantic or transient-pointer.\n", stderr)
+            exit(2)
+        }
+        tapBackendMode = parsed
+    }
+    TouchBridgeRuntime.shared.router.tapBackendMode = tapBackendMode
+    print("Tap Backend: \(tapBackendMode.diagnosticName)")
+    fflush(stdout)
     
     let testRuntime = args.contains("--test-runtime")
     if testRuntime {

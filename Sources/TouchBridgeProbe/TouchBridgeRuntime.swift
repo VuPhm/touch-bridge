@@ -100,6 +100,7 @@ public final class TouchBridgeRuntime: NSObject, TouchscreenDeviceDelegate, HIDF
             fflush(stdout)
             return false
         }
+        router.prepareTapBackendForRuntime()
         guard !hasStartedRuntime else { return true }
         hasStartedRuntime = true
         

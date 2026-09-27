@@ -22,6 +22,14 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
     public var userIntent: UserIntent = .disabled
     public var probeOnly: Bool = false
     public var activeTestCaseName: String = "TouchBridge Semantic Tap"
+    /// Selects only one-finger tap actuation. Semantic remains the default and
+    /// the shared two-finger scroll path is unchanged.
+    public var tapBackendMode: TapBackendMode = .semantic {
+        didSet {
+            if tapBackendMode == .transientPointer { _ = transientPointerBackend }
+        }
+    }
+    public lazy var transientPointerBackend = TransientPointerTapBackend()
     public var preferContinuousCGScroll: Bool = true
     /// Compatibility escape hatch. CG click events move the real system cursor on some hosts.
     public var allowCursorMovingCGFallback: Bool = false
@@ -40,6 +48,11 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
     private var loggedMomentumFields = false
     
     public init() {}
+
+    public func prepareTapBackendForRuntime() {
+        guard tapBackendMode == .transientPointer else { return }
+        transientPointerBackend.prepareForTransactions()
+    }
     
     deinit {
         haltMomentum()
@@ -59,6 +72,19 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
             session.tapActionResult = "Suppressed (UserIntent Disabled)"
             TouchBridgeLogger.info(.semantic, "TAP ROUTE: USER_INTENT_DISABLED -> SUPPRESSED")
             delegate?.semanticRouter(self, didUpdateFeedback: "Tap Suppressed (Touch Disabled)", invariantPassed: true)
+            delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
+            return
+        }
+
+        if tapBackendMode == .transientPointer {
+            let appName = session.context?.applicationName
+            let result = transientPointerBackend.performClick(at: session.startGlobalPoint.cgGlobal, appName: appName)
+            session.tapActionResult = result.succeeded ? "TRANSIENT_POINTER_CLICK" : "TRANSIENT_POINTER_CLICK_FAILED"
+            delegate?.semanticRouter(
+                self,
+                didUpdateFeedback: result.succeeded ? "Transient Pointer Click [\(appName ?? "Application")]" : "Transient Pointer Click Failed",
+                invariantPassed: result.restoreResult == "SUCCESS" && (result.finalDisplacement.map { $0 <= 1.0 } ?? false)
+            )
             delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
             return
         }

@@ -92,6 +92,15 @@ public final class RuntimeValidator {
         test54_FreshOneFingerTapAfterFullRelease()
         test55_RawCheckboxAndPopupActionPolicy()
         test56_PostMomentumFreshTwoFingerGesture()
+        test57_TransientPointerQualifiedTapDispatch()
+        test58_TransientPointerRestoresCursor()
+        test59_TransientPointerMovementAndSecondFingerCancel()
+        test60_TransientPointerPhysicalMouseWins()
+        test61_TransientPointerHideFailureIsBestEffort()
+        test62_TransientPointerWarpFailureCleanup()
+        test63_TransientPointerMouseEventFailureCleanup()
+        test64_TapBackendDefaultsToSemantic()
+        test65_TransientPointerObserverUnavailableFailsSafe()
         
         let passed = results.filter { $0.passed }.count
         let failed = results.filter { !$0.passed }.count
@@ -666,6 +675,154 @@ public final class RuntimeValidator {
             cancelledCount += 1
             lastCancelReason = reason
         }
+    }
+
+    private final class FakePointerOperations: PointerTransactionOperating {
+        var canObservePhysicalMouse = true
+        var physicalMouseGeneration: UInt64 = 0
+        var cursor = CGPoint(x: 700, y: 500)
+        var hideResult = "SUCCESS"
+        var showCount = 0
+        var warpCalls = 0
+        var failWarpCall: Int?
+        var failEventType: CGEventType?
+        var eventCreationAttempts: [CGEventType] = []
+        var postedTypes: [CGEventType] = []
+        var simulatePhysicalActivityOnPost = false
+
+        func cursorPosition() -> CGPoint? { cursor }
+        func hideCursor(at point: CGPoint) -> String { hideResult }
+        func showCursor(at point: CGPoint) -> String { showCount += 1; return "SUCCESS" }
+        func warpCursor(to point: CGPoint) -> Bool {
+            warpCalls += 1
+            guard failWarpCall != warpCalls else { return false }
+            cursor = point
+            return true
+        }
+        func makeMouseEvent(type: CGEventType, at point: CGPoint) -> PointerMouseEvent? {
+            eventCreationAttempts.append(type)
+            return type == failEventType ? nil : PointerMouseEvent()
+        }
+        func post(_ event: PointerMouseEvent) {
+            // Fake events do not expose event types, so the backend's two ordered
+            // posts are recorded as the expected down/up pair.
+            postedTypes.append(postedTypes.isEmpty ? .leftMouseDown : .leftMouseUp)
+            if simulatePhysicalActivityOnPost { physicalMouseGeneration &+= 1 }
+        }
+    }
+
+    private func near(_ lhs: CGPoint, _ rhs: CGPoint, tolerance: CGFloat = 0.01) -> Bool {
+        abs(lhs.x - rhs.x) <= tolerance && abs(lhs.y - rhs.y) <= tolerance
+    }
+
+    private func runTransientTap(backend: TransientPointerTapBackend, movement: CGFloat = 0, secondFinger: Bool = false) -> (TestGestureDelegate, TouchGestureRecognizer) {
+        let recognizer = TouchGestureRecognizer(mapper: CoordinateMapper())
+        let router = SemanticInteractionRouter()
+        router.userIntent = .enabled
+        router.tapBackendMode = .transientPointer
+        router.transientPointerBackend = backend
+        recognizer.delegate = router
+        recognizer.testContextOverride = makeTestScrollContext()
+        let start = CGPoint(x: 240, y: 240)
+        let delegate = TestGestureDelegate()
+        if secondFinger {
+            recognizer.delegate = delegate
+        }
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: start), global: GlobalDisplayPoint(cgGlobal: start), contactID: 1)
+        if secondFinger {
+            let second = CGPoint(x: 440, y: 240)
+            recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: second), global: GlobalDisplayPoint(cgGlobal: second), contactID: 2)
+            recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: start), global: GlobalDisplayPoint(cgGlobal: start), contactID: 1)
+            recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: second), global: GlobalDisplayPoint(cgGlobal: second), contactID: 2)
+            return (delegate, recognizer)
+        } else if movement > 0 {
+            let moved = CGPoint(x: start.x + movement, y: start.y)
+            recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: moved), global: GlobalDisplayPoint(cgGlobal: moved), contactID: 1)
+            usleep(20_000)
+            recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: moved), global: GlobalDisplayPoint(cgGlobal: moved), contactID: 1)
+            return (delegate, recognizer)
+        } else {
+            usleep(20_000)
+            recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: start), global: GlobalDisplayPoint(cgGlobal: start), contactID: 1)
+            return (delegate, recognizer)
+        }
+    }
+
+    private func test57_TransientPointerQualifiedTapDispatch() {
+        let operations = FakePointerOperations()
+        let backend = TransientPointerTapBackend(operations: operations)
+        _ = runTransientTap(backend: backend)
+        let passed = operations.postedTypes == [.leftMouseDown, .leftMouseUp] && operations.warpCalls == 2
+        record(name: "Test 57: Qualified One-Finger Tap Invokes Transient Pointer Backend", passed: passed, details: "A qualified tap routed in transient-pointer mode posts one normal down/up pair and restores the initial cursor.")
+    }
+
+    private func test58_TransientPointerRestoresCursor() {
+        let operations = FakePointerOperations()
+        let start = operations.cursor
+        let result = TransientPointerTapBackend(operations: operations).performClick(at: CGPoint(x: 230, y: 170))
+        let passed = result.restoreAttempted && result.restoreResult == "SUCCESS" && near(operations.cursor, start) && result.finalDisplacement == 0
+        record(name: "Test 58: Transient Pointer Restores Cursor Position", passed: passed, details: "A successful transaction warps to the interaction point, posts a click, and returns to the original coordinate.")
+    }
+
+    private func test59_TransientPointerMovementAndSecondFingerCancel() {
+        let movedOps = FakePointerOperations()
+        let (movedDelegate, _) = runTransientTap(backend: TransientPointerTapBackend(operations: movedOps), movement: 25)
+        let secondOps = FakePointerOperations()
+        let (twoFingerDelegate, _) = runTransientTap(backend: TransientPointerTapBackend(operations: secondOps), secondFinger: true)
+        let passed = movedOps.postedTypes.isEmpty && movedDelegate.tapCount == 0 && secondOps.postedTypes.isEmpty && twoFingerDelegate.tapCount == 0 && twoFingerDelegate.panStartCount == 1
+        record(name: "Test 59: Movement and Second Finger Cancel Pending Tap", passed: passed, details: "Movement beyond slop emits no click; a second contact cancels the tap candidate and promotes to the existing two-finger pan.")
+    }
+
+    private func test60_TransientPointerPhysicalMouseWins() {
+        let operations = FakePointerOperations()
+        operations.simulatePhysicalActivityOnPost = true
+        let start = operations.cursor
+        let result = TransientPointerTapBackend(operations: operations).performClick(at: CGPoint(x: 230, y: 170))
+        let passed = result.physicalMouseInterferenceDetected && !result.restoreAttempted && result.restoreResult.contains("SUPPRESSED") && !near(operations.cursor, start)
+        record(name: "Test 60: Physical Mouse Activity Suppresses Cursor Restoration", passed: passed, details: "A changed physical activity generation prevents warping the user's real mouse back to a stale starting point.")
+    }
+
+    private func test61_TransientPointerHideFailureIsBestEffort() {
+        let operations = FakePointerOperations()
+        operations.hideResult = "FAILED(CGError 1000)"
+        let result = TransientPointerTapBackend(operations: operations).performClick(at: CGPoint(x: 230, y: 170))
+        let passed = result.succeeded && result.visualConcealmentAttempted && result.visualConcealmentResult.hasPrefix("FAILED") && operations.postedTypes.count == 2 && operations.showCount == 0
+        record(name: "Test 61: Cursor Hide Failure Does Not Prevent Click", passed: passed, details: "Concealment failure is recorded independently and does not gate the down/up click; no unmatched show call is issued.")
+    }
+
+    private func test62_TransientPointerWarpFailureCleanup() {
+        let operations = FakePointerOperations()
+        operations.failWarpCall = 1
+        let start = operations.cursor
+        let result = TransientPointerTapBackend(operations: operations).performClick(at: CGPoint(x: 230, y: 170))
+        let passed = !result.succeeded && result.relocationResult == "FAILED" && result.restoreAttempted && result.restoreResult == "SUCCESS" && operations.postedTypes.isEmpty && near(operations.cursor, start) && operations.showCount == 1
+        record(name: "Test 62: Warp Failure Fails Closed and Cleans Up", passed: passed, details: "A failed relocation posts no click, attempts safe cursor restoration, and balances successful concealment.")
+    }
+
+    private func test63_TransientPointerMouseEventFailureCleanup() {
+        let downOps = FakePointerOperations()
+        downOps.failEventType = .leftMouseDown
+        let downResult = TransientPointerTapBackend(operations: downOps).performClick(at: CGPoint(x: 230, y: 170))
+        let upOps = FakePointerOperations()
+        upOps.failEventType = .leftMouseUp
+        let start = upOps.cursor
+        let upResult = TransientPointerTapBackend(operations: upOps).performClick(at: CGPoint(x: 230, y: 170))
+        let passed = !downResult.succeeded && downOps.postedTypes.isEmpty && downOps.showCount == 1 && !upResult.succeeded && upOps.postedTypes.isEmpty && !upResult.mouseDownPosted && near(upOps.cursor, start) && upOps.showCount == 1
+        record(name: "Test 63: Mouse Event Creation Failure Cleans Up", passed: passed, details: "Both events are created before posting; failure to create either event posts no down, then restores cursor and balances visibility.")
+    }
+
+    private func test64_TapBackendDefaultsToSemantic() {
+        let router = SemanticInteractionRouter()
+        let passed = router.tapBackendMode == .semantic && TapBackendMode(rawValue: "semantic") == .semantic && TapBackendMode(rawValue: "transient-pointer") == .transientPointer
+        record(name: "Test 64: Semantic Tap Backend Remains the Default", passed: passed, details: "New routers select semantic actuation by default; transient-pointer requires an explicit backend selection.")
+    }
+
+    private func test65_TransientPointerObserverUnavailableFailsSafe() {
+        let operations = FakePointerOperations()
+        operations.canObservePhysicalMouse = false
+        let result = TransientPointerTapBackend(operations: operations).performClick(at: CGPoint(x: 230, y: 170))
+        let passed = result.succeeded && result.restoreResult == "SUPPRESSED_PHYSICAL_MOUSE_OBSERVER_UNAVAILABLE" && !result.restoreAttempted && near(operations.cursor, result.interactionPoint)
+        record(name: "Test 65: Missing Physical Mouse Observer Suppresses Restoration", passed: passed, details: "A click may proceed without the optional observer, but cursor restoration is suppressed because physical mouse ownership cannot be established.")
     }
     
     private func makeTestScrollContext(isScrollable: Bool = true, initialValue: Double = 0.25) -> AXInteractionContext {

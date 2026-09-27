@@ -52,6 +52,7 @@ public final class LiveDiagnosticsRunner: NSObject, TouchBridgeRuntimeDelegate {
         ================================================================================
                     TOUCHBRIDGE P3-03R — LIVE INTERACTION DIAGNOSTICS
         ================================================================================
+        Tap Backend:       \(runtime.router.tapBackendMode.diagnosticName)
         Target Display:    \(boundDisplay?.name ?? "External") (ID: \(boundDisplay?.id ?? 0), Bounds: \(boundDisplay?.cgWidth ?? 0)x\(boundDisplay?.cgHeight ?? 0))
         Target Touchscreen: USB2IIC_CTP_CONTROL (VID: 0x1A86, PID: 0xE5E3)
         Exclusive Seize:   kIOHIDOptionsTypeSeizeDevice (Digitizer Collection Exclusive)
@@ -172,7 +173,11 @@ public final class LiveDiagnosticsRunner: NSObject, TouchBridgeRuntimeDelegate {
     }
     
     public func runtime(_ runtime: TouchBridgeRuntime, didUpdateFeedback feedback: String, invariantPassed: Bool) {
-        print("[EVENT FEEDBACK] \(feedback) (Cursor Isolated: \(invariantPassed ? "YES" : "NO"))")
+        if runtime.router.tapBackendMode == .transientPointer {
+            print("[EVENT FEEDBACK] \(feedback) (Cursor Position Restored: \(invariantPassed ? "YES" : "NO"))")
+        } else {
+            print("[EVENT FEEDBACK] \(feedback) (Cursor Isolated: \(invariantPassed ? "YES" : "NO"))")
+        }
         fflush(stdout)
     }
     
