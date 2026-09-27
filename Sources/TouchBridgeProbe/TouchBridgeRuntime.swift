@@ -26,7 +26,7 @@ public final class TouchBridgeRuntime: NSObject, TouchscreenDeviceDelegate, HIDF
     public let frameSource: HIDFrameSource
     public let mapper: CoordinateMapper
     public let recognizer: TouchGestureRecognizer
-    public let router: SemanticInteractionRouter
+    public let router: InteractionDeliveryRouter
     
     // External Managers
     public let displayManager = DisplayManager.shared
@@ -65,7 +65,7 @@ public final class TouchBridgeRuntime: NSObject, TouchscreenDeviceDelegate, HIDF
         self.frameSource = HIDFrameSource()
         self.mapper = CoordinateMapper()
         self.recognizer = TouchGestureRecognizer(mapper: mapper)
-        self.router = SemanticInteractionRouter()
+        self.router = InteractionDeliveryRouter()
         
         super.init()
         
@@ -83,23 +83,10 @@ public final class TouchBridgeRuntime: NSObject, TouchscreenDeviceDelegate, HIDF
     public func start(requestAccessibilityPermission: Bool = false) -> Bool {
         TouchBridgeLogger.info(.lifecycle, "Starting TouchBridge Prototype Runtime (P3-01)...")
         
-        // Request permission before any HID seize. Trust remains fail-closed until
-        // AXIsProcessTrusted() actually reports true.
+        // AX enrichment is optional. HID ownership remains protected by the
+        // existing device lifecycle and macOS security boundaries.
         _ = permissionManager.checkPermission(requestPromptIfNeeded: requestAccessibilityPermission)
         updateAccessibilityState()
-        guard permissionManager.isTrusted() else {
-            if hasStartedRuntime {
-                setEnabled(false)
-                device.stop()
-                displayManager.stopMonitoring()
-                hasStartedRuntime = false
-            }
-            print("Accessibility permission required — touchscreen interaction not enabled")
-            print("Enable TouchBridgeProbe in System Settings → Privacy & Security → Accessibility.")
-            print("macOS permission UI may appear asynchronously; relaunch or request permission again after enabling it.")
-            fflush(stdout)
-            return false
-        }
         router.prepareTapBackendForRuntime()
         guard !hasStartedRuntime else { return true }
         hasStartedRuntime = true
@@ -175,8 +162,8 @@ public final class TouchBridgeRuntime: NSObject, TouchscreenDeviceDelegate, HIDF
             if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
                 NSWorkspace.shared.open(url)
             }
-            print("Accessibility permission required — touchscreen interaction not enabled")
-            print("Enable TouchBridgeProbe in System Settings → Privacy & Security → Accessibility.")
+            print("Accessibility enrichment is unavailable; pointer-primary interaction remains available.")
+            print("Enable TouchBridgeProbe in System Settings → Privacy & Security → Accessibility to use semantic-only diagnostics.")
         }
     }
     
@@ -357,9 +344,7 @@ public final class TouchBridgeRuntime: NSObject, TouchscreenDeviceDelegate, HIDF
     // MARK: - Runtime Capability & Engine State Machine (P3-01 & P3-01.1)
     
     public func evaluateCapability() -> RuntimeCapability {
-        if accessibilityState != .available {
-            return .unavailable(reason: "Accessibility permission missing")
-        } else if !deviceState.isConnected {
+        if !deviceState.isConnected {
             return .suspended(reason: "Touchscreen disconnected")
         } else if displayState.boundDisplay == nil {
             return .suspended(reason: "Target display missing")

@@ -18,29 +18,11 @@ public final class LiveDiagnosticsRunner: NSObject, TouchBridgeRuntimeDelegate {
     
     @discardableResult
     public func start(duration: Double? = nil) -> Bool {
-        let permissionManager = AXPermissionManager.shared
-        let trustedBeforeRequest = permissionManager.isTrusted()
-        if !trustedBeforeRequest {
-            // Release any stale ownership before prompting. No device start/seize is
-            // attempted until trust has actually become available.
-            runtime.setEnabled(false)
-            runtime.shutdown()
-        }
-        _ = permissionManager.checkPermission(requestPromptIfNeeded: true)
-        let trustedAfterRequest = permissionManager.isTrusted()
-        print("Accessibility permission before diagnostics: \(trustedBeforeRequest ? "TRUSTED" : "UNTRUSTED")")
-        print("Accessibility permission request issued: \(permissionManager.promptRequestIssuedByLastCheck ? "YES" : "NO")")
-        print("Accessibility permission after request: \(trustedAfterRequest ? "TRUSTED" : "UNTRUSTED")")
-        if !trustedAfterRequest {
-            print("macOS permission UI may appear asynchronously.")
-            print("Enable TouchBridgeProbe in System Settings → Privacy & Security → Accessibility.")
-            print("Accessibility permission required — touchscreen interaction not enabled")
-            fflush(stdout)
-            return false
-        }
+        let axAvailable = AXPermissionManager.shared.isTrusted()
+        print("AX enrichment: \(axAvailable ? "AVAILABLE" : "UNAVAILABLE (core input remains available)")")
 
         guard runtime.start() else {
-            print("Accessibility permission required — touchscreen interaction not enabled")
+            print("Core input runtime could not start.")
             fflush(stdout)
             return false
         }

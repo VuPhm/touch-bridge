@@ -138,7 +138,7 @@ public final class InteractionSession {
     public private(set) var state: GestureState = .possibleTap
     public var diagnosticBackend: String {
         if state == .directPan || state == .momentum { return "CG_SCROLL_WHEEL" }
-        return context != nil ? "TAP_AX_RESOLUTION_PENDING" : "TAP_AX_HIT_TEST_PENDING"
+        return "TAP_INTENT_READY"
     }
     
     // Velocity tracking (P3-03R Phase B & C)
@@ -148,7 +148,13 @@ public final class InteractionSession {
     private var lastSamplePoint: CGPoint
     
     // Cached Early Capability Context (P3-02 Section 4 & 9)
-    public let context: AXInteractionContext?
+    public private(set) var context: AXInteractionContext?
+
+    public func applyAXEnrichment(_ context: AXInteractionContext) {
+        self.context = context
+        let title = context.hitNode.title ?? context.hitNode.descriptionText ?? ""
+        self.touchTargetDescription = title.isEmpty ? context.hitNode.role : "\(context.hitNode.role): \"\(title)\""
+    }
     
     // Continuous Pan Metrics (P3-02 Section 7)
     public let initialScrollValue: Double
@@ -173,6 +179,10 @@ public final class InteractionSession {
     public var pointerIsolationSatisfied: Bool? = nil
     public var cursorActionClassification: String? = nil
     public var tapActionResult: String = "None"
+    public var interactionIntent: String = "NONE"
+    public var deliveryPolicy: String = "NOT_SELECTED"
+    public var deliveryBackend: String = "NOT_SELECTED"
+    public var axEnrichmentStatus: String = "NOT_REQUIRED"
     public var panActionResult: String = "None"
     public var transitionDescription: String = "possibleTap"
 
@@ -494,6 +504,12 @@ public final class InteractionSession {
         return """
         Test: \(name)
         Touch target: \(target)
+
+        Intent: \(interactionIntent)
+        Policy: \(deliveryPolicy)
+        Delivery: \(deliveryBackend)
+        AX enrichment: \(axEnrichmentStatus)
+        Final delivery result: \(tapActionResult)
 
         Down:
           global point: \(global)

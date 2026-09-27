@@ -5,21 +5,7 @@ import ApplicationServices
 // MARK: - Pipeline Layer 5: TouchGestureRecognizer & Tap/Pan Arbitrator (P3-02 Section 1, 2, 3 & P3-03R Phase B)
 
 public protocol TouchGestureRecognizerDelegate: AnyObject {
-    func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didResolveTapWithSession session: InteractionSession)
-    func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didStartPanWithSession session: InteractionSession)
-    func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didUpdatePanWithSession session: InteractionSession, targetValue: Double)
-    func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didUpdatePanDeltaWithSession session: InteractionSession, deltaPixels: CGVector)
-    func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didCompletePanWithSession session: InteractionSession)
-    func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didEnterMomentumWithSession session: InteractionSession, initialVelocity: CGVector)
-    func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didInterruptMomentumWithSession session: InteractionSession)
-    func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didMarkUnsupportedPan session: InteractionSession)
-    func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didCancelSession session: InteractionSession, reason: String)
-}
-
-public extension TouchGestureRecognizerDelegate {
-    func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didUpdatePanDeltaWithSession session: InteractionSession, deltaPixels: CGVector) {}
-    func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didEnterMomentumWithSession session: InteractionSession, initialVelocity: CGVector) {}
-    func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didInterruptMomentumWithSession session: InteractionSession) {}
+    func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didEmit intent: InteractionIntent)
 }
 
 public final class TouchGestureRecognizer {
@@ -113,7 +99,7 @@ public final class TouchGestureRecognizer {
             // If in kinetic momentum, ANY new touch immediately cancels existing momentum (P3-03R Phase C)
             if let current = activeSession, current.state == .momentum {
                 TouchBridgeLogger.info(.gesture, "New touch down during momentum -> Momentum interrupted immediately.")
-                delegate?.gestureRecognizer(self, didInterruptMomentumWithSession: current)
+                emit(.momentumInterrupted(current))
                 current.markMomentumEnded()
                 self.activeSession = nil
                 self.activeContacts.removeAll()
@@ -137,17 +123,9 @@ public final class TouchGestureRecognizer {
             
             if activeSession == nil {
                 // Primary Contact Down (C1)
-                var context: AXInteractionContext? = testContextOverride
-                if context == nil && AXPermissionManager.shared.isTrusted() {
-                    let (elemOpt, _, err) = AXSemanticEngine.shared.probeElementAt(globalCG: global.cgGlobal)
-                    if err == .success, let elem = elemOpt {
-                        context = AXCapabilityInspector.shared.discoverContext(element: elem)
-                        TouchBridgeLogger.debug(
-                            .gesture,
-                            "Early Capability Discovery: App='\(context?.applicationName ?? "")', Child='\(context?.hitNode.role ?? "")', ScrollArea='\(context?.scrollCapability.hasScrollArea == true ? "YES" : "NO")', Mech='\(context?.scrollCapability.mechanism ?? "NONE")'"
-                        )
-                    }
-                }
+                // Gesture recognition records touch state only. AX inspection is
+                // optional enrichment and cannot gate tap qualification.
+                let context: AXInteractionContext? = testContextOverride
                 
                 let session = InteractionSession(
                     startSample: sample,
@@ -174,7 +152,7 @@ public final class TouchGestureRecognizer {
                 )
                 session.promoteToTwoFingerPan(centroid: centroid, now: now)
                 if !alreadyPanning, session.state == .directPan {
-                    delegate?.gestureRecognizer(self, didStartPanWithSession: session)
+                    emit(.directPanStarted(session))
                 }
             } else {
                 TouchBridgeLogger.debug(.gesture, "Additional contact tracked (Total: \(activeContacts.count), ID=\(sample.contactID)).")
@@ -217,28 +195,28 @@ public final class TouchGestureRecognizer {
             
             switch action {
             case .transitionedToPan:
-                delegate?.gestureRecognizer(self, didStartPanWithSession: session)
+                emit(.directPanStarted(session))
                 let targetValue = session.calculateTargetScrollValue(currentY: moveGlobal.cgGlobal.y)
                 let frameDy = moveGlobal.cgGlobal.y - session.startGlobalPoint.cgGlobal.y
-                delegate?.gestureRecognizer(self, didUpdatePanDeltaWithSession: session, deltaPixels: CGVector(dx: 0, dy: frameDy))
+                emit(.directPanUpdated(session, deltaPixels: CGVector(dx: 0, dy: frameDy)))
                 
                 if session.shouldDispatchAXWrite(now: now, targetValue: targetValue, currentY: moveGlobal.cgGlobal.y) {
-                    delegate?.gestureRecognizer(self, didUpdatePanWithSession: session, targetValue: targetValue)
+                    emit(.directPanAXValueUpdated(session, targetValue: targetValue))
                 } else {
                     session.recordCoalescedSkip(fingerY: moveGlobal.cgGlobal.y, targetValue: targetValue)
                 }
                 
             case .transitionedToUnsupportedPan:
-                delegate?.gestureRecognizer(self, didMarkUnsupportedPan: session)
+                emit(.unsupportedPan(session))
 
             case .cancelledMovement:
                 break
                 
             case .panValueUpdated(let targetValue, let deltaPixels):
-                delegate?.gestureRecognizer(self, didUpdatePanDeltaWithSession: session, deltaPixels: deltaPixels)
+                emit(.directPanUpdated(session, deltaPixels: deltaPixels))
                 
                 if session.shouldDispatchAXWrite(now: now, targetValue: targetValue, currentY: moveGlobal.cgGlobal.y) {
-                    delegate?.gestureRecognizer(self, didUpdatePanWithSession: session, targetValue: targetValue)
+                    emit(.directPanAXValueUpdated(session, targetValue: targetValue))
                 } else {
                     session.recordCoalescedSkip(fingerY: moveGlobal.cgGlobal.y, targetValue: targetValue)
                 }
@@ -260,17 +238,17 @@ public final class TouchGestureRecognizer {
                     // Losing either finger terminates scrolling. The remaining contact is
                     // quarantined until lift and cannot continue scrolling or become a tap.
                     if session.state == .directPan {
-                        delegate?.gestureRecognizer(self, didCompletePanWithSession: session)
+                        emit(.directPanEnded(session))
                         let velocity = session.filteredVelocity
                         if hypot(velocity.dx, velocity.dy) >= GestureArbitrationConfig.minFlickVelocityPtPerSec {
                             session.markMomentumStarted()
-                            delegate?.gestureRecognizer(self, didEnterMomentumWithSession: session, initialVelocity: velocity)
+                            emit(.momentumStarted(session, initialVelocity: velocity))
                         } else {
                             session.markIdle()
                             activeSession = nil
                         }
                     } else if session.state == .unsupportedPan {
-                        delegate?.gestureRecognizer(self, didCancelSession: session, reason: "UNSUPPORTED_PAN_RELEASE")
+                        emit(.cancelled(session, reason: "UNSUPPORTED_PAN_RELEASE"))
                         session.markIdle()
                         activeSession = nil
                     } else {
@@ -303,11 +281,11 @@ public final class TouchGestureRecognizer {
                 if duration < GestureArbitrationConfig.minTapDurationSec {
                     session.cancel(reason: "CONTACT_TOO_BRIEF")
                     TouchBridgeLogger.debug(.gesture, "Tap rejected: duration too brief (\(String(format: "%.3f", duration))s < \(GestureArbitrationConfig.minTapDurationSec)s)")
-                    delegate?.gestureRecognizer(self, didCancelSession: session, reason: "CONTACT_TOO_BRIEF")
+                    emit(.cancelled(session, reason: "CONTACT_TOO_BRIEF"))
                 } else if session.maxMovementPt > GestureArbitrationConfig.panThresholdPt {
                     session.cancel(reason: "MOVEMENT_TOLERANCE_EXCEEDED")
                     TouchBridgeLogger.debug(.gesture, "Tap rejected: movement exceeded (\(String(format: "%.1f", session.maxMovementPt))pt)")
-                    delegate?.gestureRecognizer(self, didCancelSession: session, reason: "MOVEMENT_TOLERANCE_EXCEEDED")
+                    emit(.cancelledOneFingerMovement(session, reason: "MOVEMENT_TOLERANCE_EXCEEDED"))
                 } else {
                     // Qualified deterministic TAP! (Stationary finger down > 850ms qualifies cleanly, P3-03R Phase B)
                     session.markTapExecuted()
@@ -315,7 +293,7 @@ public final class TouchGestureRecognizer {
                         .gesture,
                         "Qualified Tap: [Dur: \(String(format: "%.3f", duration))s, Mov: \(String(format: "%.1f", session.maxMovementPt))pt <= \(GestureArbitrationConfig.panThresholdPt)pt]"
                     )
-                    delegate?.gestureRecognizer(self, didResolveTapWithSession: session)
+                    emit(.tap(session))
                 }
                 
             case .directPan:
@@ -330,16 +308,16 @@ public final class TouchGestureRecognizer {
                         .gesture,
                         "Pan released with flick velocity: \(String(format: "%.1f", speed)) pt/s -> Entering KINETIC MOMENTUM"
                     )
-                    delegate?.gestureRecognizer(self, didEnterMomentumWithSession: session, initialVelocity: releaseVelocity)
+                    emit(.momentumStarted(session, initialVelocity: releaseVelocity))
                 } else {
                     // Clean stop
-                    delegate?.gestureRecognizer(self, didCompletePanWithSession: session)
+                    emit(.directPanEnded(session))
                     self.activeSession = nil
                 }
                 
             case .unsupportedPan:
                 TouchBridgeLogger.info(.gesture, "Unsupported pan released: Interaction completed with zero action.")
-                delegate?.gestureRecognizer(self, didCancelSession: session, reason: "UNSUPPORTED_PAN_RELEASE")
+                emit(.cancelled(session, reason: "UNSUPPORTED_PAN_RELEASE"))
                 self.activeSession = nil
                 
             case .momentum:
@@ -349,7 +327,7 @@ public final class TouchGestureRecognizer {
 
             case .cancelled(let reason):
                 if reason == "MOVEMENT_TOLERANCE_EXCEEDED" || reason == "CONTACT_TOO_BRIEF" {
-                    delegate?.gestureRecognizer(self, didCancelSession: session, reason: reason)
+                    emit(.cancelledOneFingerMovement(session, reason: reason))
                 }
                 self.activeSession = nil
 
@@ -364,5 +342,9 @@ public final class TouchGestureRecognizer {
         if activeContacts.isEmpty {
             activeSession = nil
         }
+    }
+
+    private func emit(_ intent: InteractionIntent) {
+        delegate?.gestureRecognizer(self, didEmit: intent)
     }
 }

@@ -19,9 +19,10 @@ func printHelp() {
       --test-timestamps   Empirically validate real HID frame timestamps across gestures (P1.5 requirement 1).
       --test-arbitration  Launch P3-03 Interaction Router & Gesture Arbitration Testbed Window.
       --test-runtime      Run automated runtime, gesture arbitration, and tap routing validation suite.
+      --test-architecture Run deterministic P3-04A intent and delivery contract checks.
       --request-accessibility  Request macOS Accessibility permission for TouchBridgeProbe, then exit.
       --live-diagnostics  Run real-time P3-03R live diagnostic telemetry stream (contacts, speed, backend, seize).
-      --tap-backend <mode> Select one-finger tap actuation: semantic (default) or transient-pointer.
+      --tap-backend <mode> Select tap delivery: pointer-primary (default) or semantic-only diagnostic. Legacy values semantic and transient-pointer remain accepted.
       --verify-arbitration Run live physical tap-vs-pan arbitration validation across all scenarios.
       --verify-gating     Run live hardware Enable/Disable gating verification.
       --verify-hotplug    Run live hardware USB hot-plug disconnect/reconnect verification.
@@ -357,10 +358,10 @@ func main() {
         exit(0)
     }
 
-    var tapBackendMode: TapBackendMode = .semantic
+    var tapBackendMode: TapBackendMode = .transientPointer
     if let backendIndex = args.firstIndex(of: "--tap-backend") {
-        guard backendIndex + 1 < args.count, let parsed = TapBackendMode(rawValue: args[backendIndex + 1]) else {
-            fputs("[ERROR] --tap-backend must be semantic or transient-pointer.\n", stderr)
+        guard backendIndex + 1 < args.count, let parsed = TapBackendMode.parseCLI(args[backendIndex + 1]) else {
+            fputs("[ERROR] --tap-backend must be pointer-primary, semantic-only, semantic, or transient-pointer.\n", stderr)
             exit(2)
         }
         tapBackendMode = parsed
@@ -370,6 +371,14 @@ func main() {
     fflush(stdout)
     
     let testRuntime = args.contains("--test-runtime")
+    if args.contains("--test-architecture") {
+        let report = RuntimeValidator.shared.runArchitectureValidations()
+        print("\(report.suiteName): \(report.passedTests)/\(report.totalTests) passed, \(report.failedTests) failed")
+        for result in report.testResults {
+            print("\(result.passed ? "[PASS]" : "[FAIL]") \(result.name): \(result.details)")
+        }
+        exit(report.allPassed ? 0 : 1)
+    }
     if testRuntime {
         let report = RuntimeValidator.shared.runAllValidations()
         exit(report.allPassed ? 0 : 1)

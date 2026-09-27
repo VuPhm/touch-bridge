@@ -101,6 +101,10 @@ public final class RuntimeValidator {
         test63_TransientPointerMouseEventFailureCleanup()
         test64_TapBackendDefaultsToSemantic()
         test65_TransientPointerObserverUnavailableFailsSafe()
+        test66_TapIntentIndependentOfAX()
+        test67_PointerPrimaryIgnoresAXGroup()
+        test68_CancelledMovementEmitsNoTapIntent()
+        test69_SemanticOnlySelectsSemanticBackend()
         
         let passed = results.filter { $0.passed }.count
         let failed = results.filter { !$0.passed }.count
@@ -136,6 +140,40 @@ public final class RuntimeValidator {
         }
         
         return report
+    }
+
+    /// Deterministic architecture contract suite. It uses synthetic gesture
+    /// samples and injected pointer operations; it does not seize HID or post OS events.
+    public func runArchitectureValidations() -> RuntimeVerificationReport {
+        results.removeAll()
+        test16_P3_03_CleanTap()
+        test18_P3_03_MovementExceedingThreshold_PanNoClick()
+        test32_HIDSeizeFailureFailsClosed()
+        test28_P3_03R_IntentionalTwoFingerPan()
+        test29_P3_03R_KineticMomentumFlickAndTouchInterruption()
+        test35_PrimaryLiftsFirstDirectPanTerminates()
+        test36_SecondaryLiftsFirstDirectPanTerminates()
+        test39_ReleaseMomentumStillInterruptedByNewTouch()
+        test56_PostMomentumFreshTwoFingerGesture()
+        test57_TransientPointerQualifiedTapDispatch()
+        test64_TapBackendDefaultsToSemantic()
+        test65_TransientPointerObserverUnavailableFailsSafe()
+        test66_TapIntentIndependentOfAX()
+        test67_PointerPrimaryIgnoresAXGroup()
+        test68_CancelledMovementEmitsNoTapIntent()
+        test69_SemanticOnlySelectsSemanticBackend()
+
+        let passed = results.filter(\.passed).count
+        let failed = results.count - passed
+        return RuntimeVerificationReport(
+            timestamp: Date(),
+            suiteName: "TouchBridge P3-04A Deterministic Architecture Contract",
+            allPassed: failed == 0,
+            totalTests: results.count,
+            passedTests: passed,
+            failedTests: failed,
+            testResults: results
+        )
     }
     
     // Test 1: Explicit Domain States & UserIntent Gating
@@ -645,35 +683,23 @@ public final class RuntimeValidator {
         var momentumEnterCount = 0
         var momentumInterruptCount = 0
         
-        func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didResolveTapWithSession session: InteractionSession) {
-            tapCount += 1
-        }
-        func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didStartPanWithSession session: InteractionSession) {
-            panStartCount += 1
-        }
-        func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didUpdatePanWithSession session: InteractionSession, targetValue: Double) {
-            panUpdateCount += 1
-            lastPanUpdateValue = targetValue
-            session.recordAXWriteDispatched(now: Date(), value: targetValue, currentY: session.latestGlobalPoint.cgGlobal.y)
-        }
-        func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didUpdatePanDeltaWithSession session: InteractionSession, deltaPixels: CGVector) {
-            panDeltaCount += 1
-        }
-        func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didCompletePanWithSession session: InteractionSession) {
-            panCompleteCount += 1
-        }
-        func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didEnterMomentumWithSession session: InteractionSession, initialVelocity: CGVector) {
-            momentumEnterCount += 1
-        }
-        func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didInterruptMomentumWithSession session: InteractionSession) {
-            momentumInterruptCount += 1
-        }
-        func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didMarkUnsupportedPan session: InteractionSession) {
-            unsupportedPanCount += 1
-        }
-        func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didCancelSession session: InteractionSession, reason: String) {
-            cancelledCount += 1
-            lastCancelReason = reason
+        func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didEmit intent: InteractionIntent) {
+            switch intent {
+            case .tap: tapCount += 1
+            case .directPanStarted: panStartCount += 1
+            case .directPanAXValueUpdated(let session, let targetValue):
+                panUpdateCount += 1
+                lastPanUpdateValue = targetValue
+                session.recordAXWriteDispatched(now: Date(), value: targetValue, currentY: session.latestGlobalPoint.cgGlobal.y)
+            case .directPanUpdated: panDeltaCount += 1
+            case .directPanEnded: panCompleteCount += 1
+            case .momentumStarted: momentumEnterCount += 1
+            case .momentumInterrupted: momentumInterruptCount += 1
+            case .unsupportedPan: unsupportedPanCount += 1
+            case .cancelledOneFingerMovement(_, let reason), .cancelled(_, let reason):
+                cancelledCount += 1
+                lastCancelReason = reason
+            }
         }
     }
 
@@ -715,14 +741,14 @@ public final class RuntimeValidator {
         abs(lhs.x - rhs.x) <= tolerance && abs(lhs.y - rhs.y) <= tolerance
     }
 
-    private func runTransientTap(backend: TransientPointerTapBackend, movement: CGFloat = 0, secondFinger: Bool = false) -> (TestGestureDelegate, TouchGestureRecognizer) {
+    private func runTransientTap(backend: TransientPointerTapBackend, movement: CGFloat = 0, secondFinger: Bool = false, context: AXInteractionContext? = nil) -> (TestGestureDelegate, TouchGestureRecognizer) {
         let recognizer = TouchGestureRecognizer(mapper: CoordinateMapper())
         let router = SemanticInteractionRouter()
         router.userIntent = .enabled
         router.tapBackendMode = .transientPointer
         router.transientPointerBackend = backend
         recognizer.delegate = router
-        recognizer.testContextOverride = makeTestScrollContext()
+        recognizer.testContextOverride = context ?? makeTestScrollContext()
         let start = CGPoint(x: 240, y: 240)
         let delegate = TestGestureDelegate()
         if secondFinger {
@@ -813,8 +839,8 @@ public final class RuntimeValidator {
 
     private func test64_TapBackendDefaultsToSemantic() {
         let router = SemanticInteractionRouter()
-        let passed = router.tapBackendMode == .semantic && TapBackendMode(rawValue: "semantic") == .semantic && TapBackendMode(rawValue: "transient-pointer") == .transientPointer
-        record(name: "Test 64: Semantic Tap Backend Remains the Default", passed: passed, details: "New routers select semantic actuation by default; transient-pointer requires an explicit backend selection.")
+        let passed = router.tapBackendMode == .transientPointer && InteractionDeliveryPolicy.tapMechanism(mode: router.tapBackendMode) == .transientPointer && TapBackendMode.parseCLI("semantic") == .semantic && TapBackendMode.parseCLI("transient-pointer") == .transientPointer
+        record(name: "Test 64: Pointer Primary Is the Default; Semantic Is Diagnostic", passed: passed, details: "New routers choose transient pointer delivery by default while preserving the legacy semantic and transient-pointer CLI values.")
     }
 
     private func test65_TransientPointerObserverUnavailableFailsSafe() {
@@ -824,8 +850,49 @@ public final class RuntimeValidator {
         let passed = result.succeeded && result.restoreResult == "SUPPRESSED_PHYSICAL_MOUSE_OBSERVER_UNAVAILABLE" && !result.restoreAttempted && near(operations.cursor, result.interactionPoint)
         record(name: "Test 65: Missing Physical Mouse Observer Suppresses Restoration", passed: passed, details: "A click may proceed without the optional observer, but cursor restoration is suppressed because physical mouse ownership cannot be established.")
     }
+
+    private func test66_TapIntentIndependentOfAX() {
+        let recognizer = TouchGestureRecognizer(mapper: CoordinateMapper())
+        let delegate = TestGestureDelegate()
+        recognizer.delegate = delegate
+        let point = CGPoint(x: 240, y: 240)
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: point), global: GlobalDisplayPoint(cgGlobal: point), contactID: 1)
+        usleep(20_000)
+        recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: point), global: GlobalDisplayPoint(cgGlobal: point), contactID: 1)
+        record(name: "Test 66: Qualified Tap Intent Does Not Require AX Context", passed: delegate.tapCount == 1, details: "A qualified one-finger gesture with no AX context emits exactly one TAP intent.")
+    }
+
+    private func test67_PointerPrimaryIgnoresAXGroup() {
+        let operations = FakePointerOperations()
+        let (_, recognizer) = runTransientTap(
+            backend: TransientPointerTapBackend(operations: operations),
+            context: makeTestScrollContext(isScrollable: false, role: "AXGroup")
+        )
+        let passed = operations.postedTypes == [.leftMouseDown, .leftMouseUp] && recognizer.activeSession == nil
+        record(name: "Test 67: AXGroup Does Not Change Pointer Primary Routing", passed: passed, details: "A qualified tap over an AXGroup still produces one transient pointer down/up pair.")
+    }
+
+    private func test68_CancelledMovementEmitsNoTapIntent() {
+        let recognizer = TouchGestureRecognizer(mapper: CoordinateMapper())
+        let delegate = TestGestureDelegate()
+        recognizer.delegate = delegate
+        let start = CGPoint(x: 240, y: 240), moved = CGPoint(x: 280, y: 240)
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: start), global: GlobalDisplayPoint(cgGlobal: start), contactID: 1)
+        recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: moved), global: GlobalDisplayPoint(cgGlobal: moved), contactID: 1)
+        recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: moved), global: GlobalDisplayPoint(cgGlobal: moved), contactID: 1)
+        let passed = delegate.tapCount == 0 && delegate.cancelledCount == 1
+        record(name: "Test 68: Cancelled One-Finger Movement Emits No Tap", passed: passed, details: "Movement beyond the threshold emits cancellation and no TAP intent.")
+    }
+
+    private func test69_SemanticOnlySelectsSemanticBackend() {
+        let router = InteractionDeliveryRouter()
+        router.tapBackendMode = .semantic
+        let passed = InteractionDeliveryPolicy.selectsDiagnosticSemanticDelivery(mode: router.tapBackendMode) &&
+            InteractionDeliveryPolicy.tapMechanism(mode: router.tapBackendMode) == .diagnosticSemantic
+        record(name: "Test 69: Semantic-Only Diagnostic Selects AX Delivery", passed: passed, details: "Explicit semantic-only mode selects the AX semantic backend and does not select pointer delivery.")
+    }
     
-    private func makeTestScrollContext(isScrollable: Bool = true, initialValue: Double = 0.25) -> AXInteractionContext {
+    private func makeTestScrollContext(isScrollable: Bool = true, initialValue: Double = 0.25, role: String? = nil) -> AXInteractionContext {
         let sysElem = AXUIElementCreateSystemWide()
         let cap = AXScrollCapability(
             hasScrollArea: isScrollable,
@@ -840,7 +907,7 @@ public final class RuntimeValidator {
             mechanism: isScrollable ? "DIRECT_VALUE" : "UNSUPPORTED"
         )
         let node = AXNodeCapability(
-            role: isScrollable ? "AXButton" : "AXWebArea",
+            role: role ?? (isScrollable ? "AXButton" : "AXWebArea"),
             subrole: nil,
             title: isScrollable ? "Save Document" : "Safari Web Area",
             descriptionText: nil,
@@ -1618,7 +1685,7 @@ public final class RuntimeValidator {
             recognizer.processMappedPoint(phase: phase, local: DisplayLocalPoint(cgPoint: point), global: GlobalDisplayPoint(cgGlobal: point), contactID: id)
         }
         send(.down, a, 1)
-        let firstDown = recognizer.activeSession?.state == .possibleTap && recognizer.activeSession?.diagnosticBackend == "TAP_AX_RESOLUTION_PENDING"
+        let firstDown = recognizer.activeSession?.state == .possibleTap && recognizer.activeSession?.diagnosticBackend == "TAP_INTENT_READY"
         send(.down, c, 2)
         let directPan = recognizer.activeSession?.state == .directPan && recognizer.activeSession?.diagnosticBackend == "CG_SCROLL_WHEEL" && delegate.panStartCount == 1
         usleep(10_000)
@@ -1635,7 +1702,7 @@ public final class RuntimeValidator {
         }
         let settled = recognizer.activeSession == nil && recognizer.activeContacts.isEmpty
         send(.down, a, 3)
-        let freshFirst = recognizer.activeSession?.state == .possibleTap && recognizer.activeSession?.diagnosticBackend == "TAP_AX_RESOLUTION_PENDING"
+        let freshFirst = recognizer.activeSession?.state == .possibleTap && recognizer.activeSession?.diagnosticBackend == "TAP_INTENT_READY"
         send(.down, c, 4)
         let freshDirectPan = recognizer.activeSession?.state == .directPan && recognizer.activeSession?.diagnosticBackend == "CG_SCROLL_WHEEL" && delegate.panStartCount == 2
         let passed = firstDown && directPan && momentum && quarantineComplete && settled && freshFirst && freshDirectPan

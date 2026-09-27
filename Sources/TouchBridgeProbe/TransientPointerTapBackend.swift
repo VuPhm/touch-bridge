@@ -2,18 +2,6 @@ import Foundation
 import CoreGraphics
 import Cocoa
 
-public enum TapBackendMode: String, CaseIterable {
-    case semantic
-    case transientPointer = "transient-pointer"
-
-    public var diagnosticName: String {
-        switch self {
-        case .semantic: return "SEMANTIC"
-        case .transientPointer: return "TRANSIENT_POINTER"
-        }
-    }
-}
-
 public struct PointerTransactionResult {
     public let initialCursor: CGPoint?
     public let interactionPoint: CGPoint

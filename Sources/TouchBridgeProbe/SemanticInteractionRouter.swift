@@ -3,7 +3,7 @@ import CoreGraphics
 import Cocoa
 import ApplicationServices
 
-// MARK: - Pipeline Layer 6: Capability-Driven SemanticInteractionRouter & Pan Executor (P3-02)
+// MARK: - Interaction intent delivery and direct pan execution
 
 public protocol SemanticInteractionRouterDelegate: AnyObject {
     func semanticRouter(_ router: SemanticInteractionRouter, didExecuteRecord record: SemanticEvidenceRecord)
@@ -15,16 +15,16 @@ public extension SemanticInteractionRouterDelegate {
     func semanticRouter(_ router: SemanticInteractionRouter, didCompleteSession session: InteractionSession, evidenceBlock: String) {}
 }
 
-public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
+public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
     public weak var delegate: SemanticInteractionRouterDelegate?
     
     /// Explicit user intent gate. If false, ZERO semantic interaction may occur.
     public var userIntent: UserIntent = .disabled
     public var probeOnly: Bool = false
     public var activeTestCaseName: String = "TouchBridge Semantic Tap"
-    /// Selects only one-finger tap actuation. Semantic remains the default and
-    /// the shared two-finger scroll path is unchanged.
-    public var tapBackendMode: TapBackendMode = .semantic {
+    /// Selects one-finger tap delivery. Pointer-compatible delivery is primary;
+    /// semantic-only is retained for diagnostic A/B comparisons.
+    public var tapBackendMode: TapBackendMode = .transientPointer {
         didSet {
             if tapBackendMode == .transientPointer { _ = transientPointerBackend }
         }
@@ -49,6 +49,30 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
     
     public init() {}
 
+    /// Delivery policy boundary between recognized intent and OS mechanisms.
+    public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didEmit intent: InteractionIntent) {
+        switch intent {
+        case .tap(let session):
+            gestureRecognizer(recognizer, didResolveTapWithSession: session)
+        case .cancelledOneFingerMovement(let session, let reason), .cancelled(let session, let reason):
+            gestureRecognizer(recognizer, didCancelSession: session, reason: reason)
+        case .directPanStarted(let session):
+            gestureRecognizer(recognizer, didStartPanWithSession: session)
+        case .directPanUpdated(let session, let delta):
+            gestureRecognizer(recognizer, didUpdatePanDeltaWithSession: session, deltaPixels: delta)
+        case .directPanAXValueUpdated(let session, let targetValue):
+            gestureRecognizer(recognizer, didUpdatePanWithSession: session, targetValue: targetValue)
+        case .directPanEnded(let session):
+            gestureRecognizer(recognizer, didCompletePanWithSession: session)
+        case .momentumStarted(let session, let velocity):
+            gestureRecognizer(recognizer, didEnterMomentumWithSession: session, initialVelocity: velocity)
+        case .momentumInterrupted(let session):
+            gestureRecognizer(recognizer, didInterruptMomentumWithSession: session)
+        case .unsupportedPan(let session):
+            gestureRecognizer(recognizer, didMarkUnsupportedPan: session)
+        }
+    }
+
     public func prepareTapBackendForRuntime() {
         guard tapBackendMode == .transientPointer else { return }
         transientPointerBackend.prepareForTransactions()
@@ -62,6 +86,14 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
     // MARK: - TouchGestureRecognizerDelegate
     
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didResolveTapWithSession session: InteractionSession) {
+        session.interactionIntent = "TAP"
+        session.deliveryPolicy = tapBackendMode.diagnosticName
+        session.deliveryBackend = InteractionDeliveryPolicy.tapMechanism(mode: tapBackendMode).rawValue
+        session.axEnrichmentStatus = tapBackendMode == .semantic
+            ? (AXPermissionManager.shared.isTrusted() ? "AVAILABLE" : "UNAVAILABLE")
+            : "NOT_REQUIRED"
+        TouchBridgeLogger.info(.gesture, "Intent: TAP")
+        TouchBridgeLogger.info(.semantic, "Policy: \(session.deliveryPolicy) | Delivery: \(session.deliveryBackend) | AX enrichment: \(session.axEnrichmentStatus)")
         // Absolute User Intent Gate (P3-01.1 Requirement 1 & P3-02 Section 5)
         guard userIntent == .enabled else {
             logTapNotResolved(point: session.startGlobalPoint.cgGlobal, rawRole: session.context?.hitNode.role ?? "None")
@@ -80,6 +112,7 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
             let appName = session.context?.applicationName
             let result = transientPointerBackend.performClick(at: session.startGlobalPoint.cgGlobal, appName: appName)
             session.tapActionResult = result.succeeded ? "TRANSIENT_POINTER_CLICK" : "TRANSIENT_POINTER_CLICK_FAILED"
+            TouchBridgeLogger.info(.semantic, "Final delivery result: \(session.tapActionResult)")
             delegate?.semanticRouter(
                 self,
                 didUpdateFeedback: result.succeeded ? "Transient Pointer Click [\(appName ?? "Application")]" : "Transient Pointer Click Failed",
@@ -88,12 +121,20 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
             delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
             return
         }
+
+        if session.context == nil, AXPermissionManager.shared.isTrusted() {
+            let (element, _, error) = AXSemanticEngine.shared.probeElementAt(globalCG: session.startGlobalPoint.cgGlobal)
+            if error == .success, let element {
+                session.applyAXEnrichment(AXCapabilityInspector.shared.discoverContext(element: element))
+            }
+        }
         
         guard AXPermissionManager.shared.isTrusted() else {
             logTapNotResolved(point: session.startGlobalPoint.cgGlobal, rawRole: session.context?.hitNode.role ?? "None")
             TouchBridgeLogger.warning(.semantic, "Tap rejected: Accessibility permission UNAVAILABLE.")
-            session.tapActionResult = "Rejected (Accessibility Permission Missing)"
-            TouchBridgeLogger.info(.semantic, "TAP ROUTE: ACCESSIBILITY_UNAVAILABLE -> REJECTED")
+            session.axEnrichmentStatus = "UNAVAILABLE"
+            session.tapActionResult = "Diagnostic semantic delivery unavailable (Accessibility permission missing)"
+            TouchBridgeLogger.info(.semantic, "Final delivery result: \(session.tapActionResult)")
             delegate?.semanticRouter(self, didUpdateFeedback: "Accessibility Permission Missing", invariantPassed: true)
             delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
             return
@@ -462,6 +503,18 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
 
     private func completeUnresolvedTap(session: InteractionSession, role: String, route: [String]) {
         let prefix = ([diagnosticRole(role)] + route).filter { !$0.isEmpty }
+        // Semantic-only is a diagnostic backend. It never substitutes a pointer
+        // click when AX cannot resolve or execute an action.
+        if tapBackendMode == .semantic {
+            session.tapActionResult = "Diagnostic semantic delivery unresolved"
+            session.pointerIsolationSatisfied = nil
+            session.axEnrichmentStatus = AXPermissionManager.shared.isTrusted() ? "AVAILABLE" : "UNAVAILABLE"
+            let routeText = (prefix + ["SEMANTIC_UNRESOLVED"]).joined(separator: " -> ")
+            TouchBridgeLogger.info(.semantic, "TAP ROUTE: \(routeText)")
+            delegate?.semanticRouter(self, didUpdateFeedback: session.tapActionResult, invariantPassed: true)
+            delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
+            return
+        }
         switch TapRoutingPolicy.unresolvedHandling(
             allowCursorMovingFallback: allowCursorMovingCGFallback,
             enableCursorRestoreExperiment: enableCGCursorRestoreExperiment
@@ -662,3 +715,6 @@ public final class SemanticInteractionRouter: TouchGestureRecognizerDelegate {
         }
     }
 }
+
+/// Source compatibility for existing integrations that used the P3-02 name.
+public typealias SemanticInteractionRouter = InteractionDeliveryRouter
