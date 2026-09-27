@@ -156,18 +156,37 @@ public final class RuntimeValidator {
         test39_ReleaseMomentumStillInterruptedByNewTouch()
         test56_PostMomentumFreshTwoFingerGesture()
         test57_TransientPointerQualifiedTapDispatch()
+        test58_TransientPointerRestoresCursor()
+        test59_TransientPointerMovementAndSecondFingerCancel()
+        test60_TransientPointerPhysicalMouseWins()
+        test61_TransientPointerHideFailureIsBestEffort()
+        test62_TransientPointerWarpFailureCleanup()
+        test63_TransientPointerMouseEventFailureCleanup()
         test64_TapBackendDefaultsToSemantic()
         test65_TransientPointerObserverUnavailableFailsSafe()
         test66_TapIntentIndependentOfAX()
         test67_PointerPrimaryIgnoresAXGroup()
         test68_CancelledMovementEmitsNoTapIntent()
         test69_SemanticOnlySelectsSemanticBackend()
+        test70_TransientPointerDelayedRelocationVerification()
+        test71_TransientPointerTrueRelocationFailureNoClick()
+        test72_TransientPointerBothEventsCreatedBeforePosting()
+        test73_TransientPointerMarkedEventsNotPhysical()
+        test74_TransientPointerWaitsForMouseUpAcknowledgement()
+        test75_TransientPointerAcknowledgementTimeoutIsBounded()
+        test76_TransientPointerUnavailableObservationIsDegraded()
+        test77_TransientPointerRestorationReadbackRequired()
+        test78_TransientPointerRestorationWithinToleranceVerified()
+        test79_TransientPointerVisibilityBalancedOnAllPaths()
+        test80_TransientPointerTransactionNeverLeavesButtonHeld()
+        test81_TransientPointerRelocationImmediateVerification()
+        test82_TransientPointerLatePhysicalActivityWins()
 
         let passed = results.filter(\.passed).count
         let failed = results.count - passed
         return RuntimeVerificationReport(
             timestamp: Date(),
-            suiteName: "TouchBridge P3-04A Deterministic Architecture Contract",
+            suiteName: "TouchBridge P3-04A Architecture and P3-04B Pointer Transaction Deterministic Suite",
             allPassed: failed == 0,
             totalTests: results.count,
             passedTests: passed,
@@ -711,28 +730,56 @@ public final class RuntimeValidator {
         var showCount = 0
         var warpCalls = 0
         var failWarpCall: Int?
+        var succeedWithoutMovingWarpCall: Int?
         var failEventType: CGEventType?
         var eventCreationAttempts: [CGEventType] = []
         var postedTypes: [CGEventType] = []
         var simulatePhysicalActivityOnPost = false
+        var simulatePhysicalActivityOnAcknowledgement = false
+        var delayedWarpReadbacks = 0
+        var pendingWarpTarget: CGPoint?
+        var verificationProgressCount = 0
+        var acknowledgement: PointerMouseUpAcknowledgement = .observed
+        var acknowledgementWaitCount = 0
+        var operationOrder: [String] = []
+        var buttonHeld = false
 
-        func cursorPosition() -> CGPoint? { cursor }
+        func cursorPosition() -> CGPoint? {
+            if let target = pendingWarpTarget, delayedWarpReadbacks == 0 { cursor = target; pendingWarpTarget = nil }
+            return cursor
+        }
+        func advanceCursorVerification() {
+            verificationProgressCount += 1
+            if delayedWarpReadbacks > 0 { delayedWarpReadbacks -= 1 }
+        }
         func hideCursor(at point: CGPoint) -> String { hideResult }
         func showCursor(at point: CGPoint) -> String { showCount += 1; return "SUCCESS" }
         func warpCursor(to point: CGPoint) -> Bool {
             warpCalls += 1
+            operationOrder.append("warp\(warpCalls)")
             guard failWarpCall != warpCalls else { return false }
-            cursor = point
+            if succeedWithoutMovingWarpCall == warpCalls { return true }
+            if delayedWarpReadbacks > 0 { pendingWarpTarget = point } else { cursor = point }
             return true
         }
         func makeMouseEvent(type: CGEventType, at point: CGPoint) -> PointerMouseEvent? {
             eventCreationAttempts.append(type)
+            operationOrder.append(type == .leftMouseDown ? "createDown" : "createUp")
             return type == failEventType ? nil : PointerMouseEvent()
+        }
+        func markedMouseUpAcknowledgementToken() -> UInt64? { canObservePhysicalMouse ? 0 : nil }
+        func waitForMarkedMouseUp(after token: UInt64, timeout: TimeInterval) -> PointerMouseUpAcknowledgement {
+            acknowledgementWaitCount += 1
+            operationOrder.append("ackWait")
+            if simulatePhysicalActivityOnAcknowledgement { physicalMouseGeneration &+= 1 }
+            return canObservePhysicalMouse ? acknowledgement : .unavailable
         }
         func post(_ event: PointerMouseEvent) {
             // Fake events do not expose event types, so the backend's two ordered
             // posts are recorded as the expected down/up pair.
             postedTypes.append(postedTypes.isEmpty ? .leftMouseDown : .leftMouseUp)
+            operationOrder.append(postedTypes.count == 1 ? "postDown" : "postUp")
+            buttonHeld = postedTypes.last == .leftMouseDown
             if simulatePhysicalActivityOnPost { physicalMouseGeneration &+= 1 }
         }
     }
@@ -847,7 +894,7 @@ public final class RuntimeValidator {
         let operations = FakePointerOperations()
         operations.canObservePhysicalMouse = false
         let result = TransientPointerTapBackend(operations: operations).performClick(at: CGPoint(x: 230, y: 170))
-        let passed = result.succeeded && result.restoreResult == "SUPPRESSED_PHYSICAL_MOUSE_OBSERVER_UNAVAILABLE" && !result.restoreAttempted && near(operations.cursor, result.interactionPoint)
+        let passed = result.succeeded && result.restoreResult == "SUPPRESSED_OBSERVATION_UNAVAILABLE" && !result.restoreAttempted && near(operations.cursor, result.interactionPoint)
         record(name: "Test 65: Missing Physical Mouse Observer Suppresses Restoration", passed: passed, details: "A click may proceed without the optional observer, but cursor restoration is suppressed because physical mouse ownership cannot be established.")
     }
 
@@ -890,6 +937,97 @@ public final class RuntimeValidator {
         let passed = InteractionDeliveryPolicy.selectsDiagnosticSemanticDelivery(mode: router.tapBackendMode) &&
             InteractionDeliveryPolicy.tapMechanism(mode: router.tapBackendMode) == .diagnosticSemantic
         record(name: "Test 69: Semantic-Only Diagnostic Selects AX Delivery", passed: passed, details: "Explicit semantic-only mode selects the AX semantic backend and does not select pointer delivery.")
+    }
+
+    private func test70_TransientPointerDelayedRelocationVerification() {
+        let operations = FakePointerOperations()
+        operations.delayedWarpReadbacks = 1
+        let result = TransientPointerTapBackend(operations: operations).performClick(at: CGPoint(x: 230, y: 170))
+        record(name: "Test 70: Delayed Relocation Readback Eventually Verifies", passed: result.relocationVerification.verified && result.relocationVerification.attempts == 2 && result.mouseDownPosted, details: "A stale immediate cursor readback is retried after bounded run-loop progress.")
+    }
+
+    private func test71_TransientPointerTrueRelocationFailureNoClick() {
+        let operations = FakePointerOperations()
+        operations.failWarpCall = 1
+        let result = TransientPointerTapBackend(operations: operations).performClick(at: CGPoint(x: 230, y: 170))
+        record(name: "Test 71: Relocation Failure Posts No Click Events", passed: !result.relocationVerification.verified && !result.mouseDownPosted && !result.mouseUpPosted && operations.eventCreationAttempts.isEmpty, details: "A failed relocation fails closed before either synthetic mouse event is created or posted.")
+    }
+
+    private func test72_TransientPointerBothEventsCreatedBeforePosting() {
+        let operations = FakePointerOperations()
+        _ = TransientPointerTapBackend(operations: operations).performClick(at: CGPoint(x: 230, y: 170))
+        record(name: "Test 72: Both Mouse Events Exist Before Either Post", passed: operations.operationOrder.prefix(4).elementsEqual(["warp1", "createDown", "createUp", "postDown"]) && operations.operationOrder[4] == "postUp", details: "The full down/up pair is created before posting mouseDown.")
+    }
+
+    private func test73_TransientPointerMarkedEventsNotPhysical() {
+        let operations = FakePointerOperations()
+        let result = TransientPointerTapBackend(operations: operations).performClick(at: CGPoint(x: 230, y: 170))
+        record(name: "Test 73: Marked Click Events Do Not Count as Physical", passed: !result.physicalMouseInterferenceDetected && result.mouseUpAcknowledgement == .observed, details: "Marked synthetic down/up delivery acknowledges mouseUp without advancing physical activity.")
+    }
+
+    private func test74_TransientPointerWaitsForMouseUpAcknowledgement() {
+        let operations = FakePointerOperations()
+        _ = TransientPointerTapBackend(operations: operations).performClick(at: CGPoint(x: 230, y: 170))
+        let upIndex = operations.operationOrder.firstIndex(of: "postUp") ?? Int.max
+        let ackIndex = operations.operationOrder.firstIndex(of: "ackWait") ?? Int.max
+        let restoreWarpIndex = operations.operationOrder.firstIndex(of: "warp2") ?? Int.max
+        record(name: "Test 74: Restoration Waits for Marked MouseUp", passed: operations.acknowledgementWaitCount == 1 && upIndex < ackIndex && ackIndex < restoreWarpIndex, details: "The restoration warp occurs after the acknowledgement wait returns for the posted marked mouseUp.")
+    }
+
+    private func test75_TransientPointerAcknowledgementTimeoutIsBounded() {
+        let operations = FakePointerOperations()
+        operations.acknowledgement = .timedOut
+        let result = TransientPointerTapBackend(operations: operations, acknowledgementTimeout: 0.001).performClick(at: CGPoint(x: 230, y: 170))
+        record(name: "Test 75: Acknowledgement Timeout Uses Safe Bounded Path", passed: result.classification == "ACKNOWLEDGEMENT_TIMEOUT" && !result.restoreAttempted && !operations.buttonHeld, details: "Timeout returns without hanging, leaves the posted mouseUp unheld, and suppresses cursor restoration.")
+    }
+
+    private func test76_TransientPointerUnavailableObservationIsDegraded() {
+        let operations = FakePointerOperations()
+        operations.canObservePhysicalMouse = false
+        let result = TransientPointerTapBackend(operations: operations).performClick(at: CGPoint(x: 230, y: 170))
+        record(name: "Test 76: Missing Observation Has Explicit Degraded Path", passed: result.observationUnavailable && result.classification == "RESTORATION_SUPPRESSED_OBSERVATION_UNAVAILABLE" && !result.restoreAttempted && result.succeeded, details: "Click delivery remains available while restoration is suppressed when observation cannot establish physical ownership.")
+    }
+
+    private func test77_TransientPointerRestorationReadbackRequired() {
+        let operations = FakePointerOperations()
+        operations.succeedWithoutMovingWarpCall = 2
+        let result = TransientPointerTapBackend(operations: operations).performClick(at: CGPoint(x: 230, y: 170))
+        record(name: "Test 77: Restoration API Success Is Not Verification", passed: !result.restorationVerified && (result.finalDisplacement ?? 0) > 1 && result.restoreAPIResult == "SUCCESS" && result.classification == "RESTORATION_READBACK_UNVERIFIED", details: "Restoration is verified from final cursor readback, never from a warp API result alone.")
+    }
+
+    private func test78_TransientPointerRestorationWithinToleranceVerified() {
+        let operations = FakePointerOperations()
+        let result = TransientPointerTapBackend(operations: operations).performClick(at: CGPoint(x: 230, y: 170))
+        record(name: "Test 78: Restored Cursor Within Tolerance Is Verified", passed: result.restorationVerified && result.finalDisplacement == 0, details: "A final cursor readback within configured tolerance confirms restoration.")
+    }
+
+    private func test79_TransientPointerVisibilityBalancedOnAllPaths() {
+        let success = FakePointerOperations()
+        _ = TransientPointerTapBackend(operations: success).performClick(at: CGPoint(x: 230, y: 170))
+        let failed = FakePointerOperations(); failed.failWarpCall = 1
+        _ = TransientPointerTapBackend(operations: failed).performClick(at: CGPoint(x: 230, y: 170))
+        record(name: "Test 79: Cursor Visibility Calls Balance on Success and Failure", passed: success.showCount == 1 && failed.showCount == 1, details: "Every successful concealment is paired with one show operation, including relocation failure.")
+    }
+
+    private func test80_TransientPointerTransactionNeverLeavesButtonHeld() {
+        let eventFailure = FakePointerOperations(); eventFailure.failEventType = .leftMouseUp
+        _ = TransientPointerTapBackend(operations: eventFailure).performClick(at: CGPoint(x: 230, y: 170))
+        let success = FakePointerOperations()
+        _ = TransientPointerTapBackend(operations: success).performClick(at: CGPoint(x: 230, y: 170))
+        record(name: "Test 80: No Transaction Exit Leaves Synthetic Button Held", passed: !eventFailure.buttonHeld && !success.buttonHeld, details: "The backend creates both events before posting, and every posted down has its matching up posted in the same transaction.")
+    }
+
+    private func test81_TransientPointerRelocationImmediateVerification() {
+        let operations = FakePointerOperations()
+        let result = TransientPointerTapBackend(operations: operations).performClick(at: CGPoint(x: 230, y: 170))
+        record(name: "Test 81: Relocation API and Verified Readback Both Recorded", passed: result.relocationAPIResult == "SUCCESS" && result.relocationVerification.verified && result.relocationVerification.errorDistance == 0, details: "Evidence distinguishes the warp API result from bounded cursor readback verification and error distance.")
+    }
+
+    private func test82_TransientPointerLatePhysicalActivityWins() {
+        let operations = FakePointerOperations()
+        operations.simulatePhysicalActivityOnAcknowledgement = true
+        let result = TransientPointerTapBackend(operations: operations).performClick(at: CGPoint(x: 230, y: 170))
+        record(name: "Test 82: Physical Activity Before Restore Suppresses Warp", passed: result.physicalMouseInterferenceDetected && result.restoreAPIResult == "SUPPRESSED_PHYSICAL_MOUSE_ACTIVITY" && !result.restoreAttempted, details: "A genuine unmarked event observed at the acknowledgement boundary wins over the pending restoration warp.")
     }
     
     private func makeTestScrollContext(isScrollable: Bool = true, initialValue: Double = 0.25, role: String? = nil) -> AXInteractionContext {

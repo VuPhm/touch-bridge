@@ -19,7 +19,7 @@ func printHelp() {
       --test-timestamps   Empirically validate real HID frame timestamps across gestures (P1.5 requirement 1).
       --test-arbitration  Launch P3-03 Interaction Router & Gesture Arbitration Testbed Window.
       --test-runtime      Run automated runtime, gesture arbitration, and tap routing validation suite.
-      --test-architecture Run deterministic P3-04A intent and delivery contract checks.
+      --test-architecture Run deterministic P3-04A architecture and P3-04B pointer transaction checks.
       --request-accessibility  Request macOS Accessibility permission for TouchBridgeProbe, then exit.
       --live-diagnostics  Run real-time P3-03R live diagnostic telemetry stream (contacts, speed, backend, seize).
       --tap-backend <mode> Select tap delivery: pointer-primary (default) or semantic-only diagnostic. Legacy values semantic and transient-pointer remain accepted.
