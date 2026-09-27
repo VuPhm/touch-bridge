@@ -148,7 +148,8 @@ public final class InteractionSession {
     private var lastSamplePoint: CGPoint
     
     // Cached Early Capability Context (P3-02 Section 4 & 9)
-    public private(set) var context: AXInteractionContext?
+    public var context: AXInteractionContext?
+    public var scrollDeliveryBackend: ScrollDeliveryBackend? = nil
 
     public func applyAXEnrichment(_ context: AXInteractionContext) {
         self.context = context

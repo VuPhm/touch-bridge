@@ -53,7 +53,8 @@ public struct AXNodeCapability: Codable {
             isEnabled: isEnabled,
             isFocused: isFocused,
             supportedActions: supportedActions,
-            elementFrame: frame
+            elementFrame: frame,
+            window: nil
         )
     }
 }

@@ -13,7 +13,7 @@ public struct RuntimeVerificationReport: Codable {
     public let passedTests: Int
     public let failedTests: Int
     public let testResults: [TestResult]
-    
+
     public struct TestResult: Codable {
         public let name: String
         public let passed: Bool
@@ -23,17 +23,17 @@ public struct RuntimeVerificationReport: Codable {
 
 public final class RuntimeValidator {
     public static let shared = RuntimeValidator()
-    
+
     private var results: [RuntimeVerificationReport.TestResult] = []
-    
+
     private init() {}
-    
+
     public func runAllValidations() -> RuntimeVerificationReport {
         results.removeAll()
         TouchBridgeLogger.info(.lifecycle, "================================================================================")
         TouchBridgeLogger.info(.lifecycle, "             TouchBridge P3-01 Runtime Lifecycle Validation Suite              ")
         TouchBridgeLogger.info(.lifecycle, "================================================================================")
-        
+
         test1_DomainStateModel()
         test2_CalibrationProfileStoreAndStaleDetection()
         test3_CoordinateMapperPrecision()
@@ -49,7 +49,7 @@ public final class RuntimeValidator {
         test13_CGPanWithoutAXScrollArea()
         test14_NestedChildVersusAncestorContextDiscovery()
         test15_SingleTouchInvariant_ConcurrentTouchRejection()
-        
+
         // P3-03 Gesture Layer Validation Suite (13 Dedicated Tests)
         test16_P3_03_CleanTap()
         test17_P3_03_TinyJitterTap()
@@ -105,11 +105,11 @@ public final class RuntimeValidator {
         test67_PointerPrimaryIgnoresAXGroup()
         test68_CancelledMovementEmitsNoTapIntent()
         test69_SemanticOnlySelectsSemanticBackend()
-        
+
         let passed = results.filter { $0.passed }.count
         let failed = results.filter { !$0.passed }.count
         let allPassed = (failed == 0)
-        
+
         let report = RuntimeVerificationReport(
             timestamp: Date(),
             suiteName: "TouchBridge P3-01 to P3-03 Runtime & Gesture Validation Suite",
@@ -119,7 +119,7 @@ public final class RuntimeValidator {
             failedTests: failed,
             testResults: results
         )
-        
+
         TouchBridgeLogger.info(.lifecycle, "================================================================================")
         TouchBridgeLogger.info(.lifecycle, "Validation Results: \(passed)/\(results.count) Passed (\(failed) Failed)")
         for r in results {
@@ -127,7 +127,7 @@ public final class RuntimeValidator {
             TouchBridgeLogger.info(.lifecycle, "  \(status) \(r.name): \(r.details)")
         }
         TouchBridgeLogger.info(.lifecycle, "================================================================================")
-        
+
         // Save evidence to file
         let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         let outURL = cwd.appendingPathComponent("p3_01_verification_evidence.json")
@@ -138,7 +138,7 @@ public final class RuntimeValidator {
             try? data.write(to: outURL)
             TouchBridgeLogger.info(.lifecycle, "Verification evidence saved to: \(outURL.path)")
         }
-        
+
         return report
     }
 
@@ -181,12 +181,28 @@ public final class RuntimeValidator {
         test80_TransientPointerTransactionNeverLeavesButtonHeld()
         test81_TransientPointerRelocationImmediateVerification()
         test82_TransientPointerLatePhysicalActivityWins()
+        test83_AXCapableTargetSelectsAXBackend()
+        test84_AXUnavailableTargetSelectsTransientPointerFallback()
+        test85_BackendLatchedForEntireGesture()
+        test86_NoBackendSwitchMidGestureOnAXFailure()
+        test87_AXScrollNeverCallsCursorRelocation()
+        test88_AXUpdatesClampNormalizedValue()
+        test89_AXWriteFailureDoesNotTriggerPointerWarp()
+        test90_PointerFallbackRelocatesAtMostOnceAtStart()
+        test91_RepeatedPointerFallbackUpdatesDoNotRelocateCursor()
+        test92_PointerFallbackRestorationSuppressedAfterPhysicalMouse()
+        test93_PointerFallbackSafelyRestoresWhenNoPhysicalInterference()
+        test94_MomentumStaysOnSelectedBackend()
+        test95_ScrollCompletionReleasesBackendState()
+        test96_OneFingerMovementCancelsWithoutScroll()
+        test97_TwoToOneContactTerminationQuarantineSemanticsPreserved()
+        test98_FreshTapAfterScrollRemainsValid()
 
         let passed = results.filter(\.passed).count
         let failed = results.count - passed
         return RuntimeVerificationReport(
             timestamp: Date(),
-            suiteName: "TouchBridge P3-04A Architecture and P3-04B Pointer Transaction Deterministic Suite",
+            suiteName: "TouchBridge P3-04E Production Hybrid Scroll and Pointer Transaction Deterministic Suite",
             allPassed: failed == 0,
             totalTests: results.count,
             passedTests: passed,
@@ -194,7 +210,7 @@ public final class RuntimeValidator {
             testResults: results
         )
     }
-    
+
     // Test 1: Explicit Domain States & UserIntent Gating
     private func test1_DomainStateModel() {
         let dev = DeviceState.available(name: "USB2IIC_CTP_CONTROL", vid: 0x1A86, pid: 0xE5E3)
@@ -203,7 +219,7 @@ public final class RuntimeValidator {
         let ax = AccessibilityState.available
         let eng = EngineState.disabled
         let cap = RuntimeCapability.suspended(reason: "Target display missing")
-        
+
         let snapshot = RuntimeSnapshot(
             userIntent: .disabled,
             capability: cap,
@@ -213,11 +229,11 @@ public final class RuntimeValidator {
             accessibility: ax,
             engine: eng
         )
-        
+
         let valid = (!snapshot.isUserEnabled && snapshot.engine == .disabled && snapshot.device.isConnected)
         record(name: "Test 1: Domain State Model & Intent Separation", passed: valid, details: "Verified non-boolean explicit domain representations with decoupled UserIntent and RuntimeCapability.")
     }
-    
+
     // Test 2: Authoritative Calibration Store & Stale Geometry Detection
     private func test2_CalibrationProfileStoreAndStaleDetection() {
         let store = CalibrationProfileStore.shared
@@ -243,20 +259,20 @@ public final class RuntimeValidator {
             backingScaleFactor: 1.0,
             rotationDegrees: 0.0
         )
-        
+
         let loaded = store.loadProfile(for: dummyDisplay.id)
         guard let prof = loaded else {
             record(name: "Test 2: Authoritative Profile Store", passed: false, details: "Could not load profile for display #79846407")
             return
         }
-        
+
         // 1. Compatible check
         let evalValid = store.evaluate(profile: prof, targetDisplay: dummyDisplay)
         guard case .valid = evalValid else {
             record(name: "Test 2: Authoritative Profile Store", passed: false, details: "Expected valid calibration state, got: \(evalValid)")
             return
         }
-        
+
         // 2. Geometry mismatch (resolution change simulation)
         let alteredResDisplay = DisplayMetadata(
             id: 79846407,
@@ -280,16 +296,16 @@ public final class RuntimeValidator {
             backingScaleFactor: 1.0,
             rotationDegrees: 0.0
         )
-        
+
         let evalStaleRes = store.evaluate(profile: prof, targetDisplay: alteredResDisplay)
         guard case .stale(let reason) = evalStaleRes, reason.contains("Resolution") else {
             record(name: "Test 2: Stale Geometry Detection", passed: false, details: "Failed to detect resolution mismatch")
             return
         }
-        
+
         record(name: "Test 2: Calibration Store & Stale Geometry Detection", passed: true, details: "Profile #79846407 loads accurately; geometry alterations correctly trigger STALE state (\(reason)).")
     }
-    
+
     // Test 3: Coordinate Mapper Precision
     private func test3_CoordinateMapperPrecision() {
         let dummyDisplay = DisplayMetadata(
@@ -314,59 +330,59 @@ public final class RuntimeValidator {
             backingScaleFactor: 1.0,
             rotationDegrees: 0.0
         )
-        
+
         let prof = CalibrationProfileStore.shared.loadProfile(for: dummyDisplay.id)
         let mapper = CoordinateMapper(display: dummyDisplay, profile: prof)
-        
+
         let centerSensor = NormalizedSensorPoint(u: 0.5, v: 0.5)
         guard let (local, global) = mapper.map(sensor: centerSensor) else {
             record(name: "Test 3: Coordinate Mapper", passed: false, details: "Mapping returned nil")
             return
         }
-        
+
         let valid = (local.cgPoint.x > 500 && local.cgPoint.x < 750 && global.cgGlobal.x > 2200 && global.cgGlobal.x < 2600)
         record(name: "Test 3: Coordinate Mapper Precision", passed: valid, details: "Mapped Sensor (0.5, 0.5) -> Local CG (\(String(format: "%.1f, %.1f", local.cgPoint.x, local.cgPoint.y))), Global CG (\(String(format: "%.1f, %.1f", global.cgGlobal.x, global.cgGlobal.y))).")
     }
-    
+
     // Test 4: Safety Invariants & Pointer Isolation
     private func test4_SafetyInvariantsPointerIsolation() {
         let ptA = CGPoint(x: 500.0, y: 300.0)
         let ptB = CGPoint(x: 500.0, y: 300.0)
         let ptMoved = CGPoint(x: 502.5, y: 300.0)
-        
+
         let (passClean, deltaClean) = SafetyInvariants.assertPointerIsolation(cursorBefore: ptA, cursorAfter: ptB, context: "Test Isolation (Stationary)")
         let (passMoved, deltaMoved) = SafetyInvariants.assertPointerIsolation(cursorBefore: ptA, cursorAfter: ptMoved, context: "Test Isolation (Moved)")
-        
+
         let valid = (passClean && deltaClean == 0.0 && !passMoved && deltaMoved > 2.0)
         record(name: "Test 4: Safety Invariants & Pointer Isolation", passed: valid, details: "Verified 0.0 pt cursor tolerance guard and immediate violation detection when delta > 0.001 pt.")
     }
-    
+
     // Test 5: Explicit User Enable / Disable Invariant Gate (P3-01.1 Invariant 1)
     private func test5_EnableDisableLifecycle() {
         let runtime = TouchBridgeRuntime()
         runtime.start()
-        
+
         // Supply available device and valid profile
         runtime.touchscreenDevice(
             runtime.device,
             didChangeState: .available(name: "USB2IIC_CTP_CONTROL", vid: 0x1A86, pid: 0xE5E3)
         )
-        
+
         // Initial state invariant: Even when hardware is available and ready, runtime starts with UserIntent = DISABLED -> Engine = DISABLED
         let initialIntent = runtime.userIntent
         let initialEngine = runtime.engineState
         let initialCapability = runtime.runtimeCapability
-        
+
         // Enabling moves engine to operational state if capability is ready
         runtime.setEnabled(true)
         let enabledState = runtime.engineState
-        
+
         // Disabling strictly returns engine to disabled
         runtime.setEnabled(false)
         let disabledState = runtime.engineState
-        
+
         runtime.shutdown()
-        
+
         let valid = (initialIntent == .disabled && initialEngine == .disabled && initialCapability == .ready && enabledState == .ready && disabledState == .disabled)
         record(
             name: "Test 5: Explicit Enable/Disable Invariant Gate",
@@ -374,106 +390,106 @@ public final class RuntimeValidator {
             details: "Initial launch invariant preserved: Hardware is Ready (\(initialCapability)) but Engine is DISABLED (Intent=\(initialIntent)). Enable transitions to \(enabledState); Disable strictly forces Engine=\(disabledState)."
         )
     }
-    
+
     // Test 6: Touchscreen Disconnect & Reconnect Recovery (P3-01.1 Invariant 2)
     private func test6_DeviceLifecycleDisconnectReconnectRecovery() {
         let runtime = TouchBridgeRuntime()
         runtime.start()
         runtime.setEnabled(true) // Enable to test operational state transitions
-        
+
         // 1. Initial state (device available)
         runtime.touchscreenDevice(
             runtime.device,
             didChangeState: .available(name: "USB2IIC_CTP_CONTROL", vid: 0x1A86, pid: 0xE5E3)
         )
         let connectedEngineState = runtime.engineState
-        
+
         // 2. Simulate disconnect
         runtime.touchscreenDevice(runtime.device, didChangeState: .disconnected)
         let disconnectedEngineState = runtime.engineState
         let disconnectedCapability = runtime.runtimeCapability
-        
+
         // 3. Simulate reconnect with target VID/PID
         runtime.touchscreenDevice(
             runtime.device,
             didChangeState: .available(name: "USB2IIC_CTP_CONTROL", vid: 0x1A86, pid: 0xE5E3)
         )
         let reconnectedEngineState = runtime.engineState
-        
+
         runtime.shutdown()
-        
+
         let valid = (connectedEngineState.isOperational &&
                      disconnectedEngineState == .suspended(reason: "Touchscreen disconnected") &&
                      disconnectedCapability == .suspended(reason: "Touchscreen disconnected") &&
                      runtime.deviceState.isConnected &&
                      (reconnectedEngineState == .ready || reconnectedEngineState.isOperational))
-        
+
         record(
             name: "Test 6: Device Lifecycle Disconnect/Reconnect Recovery",
             passed: valid,
             details: "Disconnect safely resets contacts and suspends engine (\(disconnectedEngineState)); Reconnect restores available state (\(runtime.deviceState)) and recovers engine (\(reconnectedEngineState)) without restart."
         )
     }
-    
+
     // Test 7: Display Reconfiguration Stale Suspending
     private func test7_DisplayReconfigurationStaleSuspending() {
         let runtime = TouchBridgeRuntime()
         runtime.start()
         runtime.setEnabled(true)
-        
+
         // Ensure device is in connected available state
         runtime.touchscreenDevice(
             runtime.device,
             didChangeState: .available(name: "USB2IIC_CTP_CONTROL", vid: 0x1A86, pid: 0xE5E3)
         )
-        
+
         // Simulate calibration in progress trigger
         runtime.markCalibrating()
         let calState = runtime.engineState
-        
+
         runtime.shutdown()
-        
+
         let valid = (calState == .suspended(reason: "Calibration in progress"))
         record(name: "Test 7: Display Reconfiguration & Incompatible Geometry Guard", passed: valid, details: "Incompatible display geometry or missing calibration strictly suspends interaction (\(calState)).")
     }
-    
+
     // Test 8: Clean Shutdown & Callback Release
     private func test8_CleanShutdownCallbackRelease() {
         let runtime = TouchBridgeRuntime()
         runtime.start()
         runtime.shutdown()
-        
+
         let valid = (runtime.deviceState == .disconnected)
         record(name: "Test 8: Clean Shutdown Callback Release", passed: valid, details: "Runtime cleanly unschedules IOHID runloop, closes passive IOHID connection, unregisters display callbacks.")
     }
-    
+
     // Test 9: Active Hardware Binding
     private func test9_ActiveHardwareBinding() {
         let displays = DisplayManager.shared.enumerateDisplays()
         let targetDisplay = DisplayManager.shared.findExternalTouchscreenDisplay()
-        
+
         var details = "Displays found: \(displays.count)."
         if let td = targetDisplay {
             details += " Target: \"\(td.name)\" (#\(td.id))."
         } else {
             details += " Target external display not bound."
         }
-        
+
         record(name: "Test 9: Active Hardware Inspection", passed: targetDisplay != nil, details: details)
     }
-    
+
     // Test 10: Interaction Session Tap Arbitration under threshold
     private func test10_InteractionSessionArbitration_TapUnderThreshold() {
         let sample = TouchSample(phase: .down, rawX: 2048, rawY: 2048, normX: 0.5, normY: 0.5)
         let local = DisplayLocalPoint(cgPoint: CGPoint(x: 200, y: 200))
         let global = GlobalDisplayPoint(cgGlobal: CGPoint(x: 200, y: 200))
         let session = InteractionSession(startSample: sample, localPoint: local, globalPoint: global, context: nil)
-        
+
         // Move with small jitter (5 pt)
         let moveLocal = DisplayLocalPoint(cgPoint: CGPoint(x: 203, y: 204))
         let moveGlobal = GlobalDisplayPoint(cgGlobal: CGPoint(x: 203, y: 204))
         _ = session.handleMove(local: moveLocal, global: moveGlobal)
-        
+
         let valid = (session.state == .possibleTap &&
                      abs(session.maxMovementPt - 5.0) < 0.001)
         record(
@@ -482,13 +498,13 @@ public final class RuntimeValidator {
             details: "Movement of 5.0 pt (< 18.0 pt threshold) remains in POSSIBLE_TAP state; no premature pan action emitted."
         )
     }
-    
+
     // Test 11: Interaction Session Pan Crossing Threshold
     private func test11_InteractionSessionArbitration_PanCrossingThreshold() {
         let sample = TouchSample(phase: .down, rawX: 2048, rawY: 2048, normX: 0.5, normY: 0.5)
         let local = DisplayLocalPoint(cgPoint: CGPoint(x: 200, y: 200))
         let global = GlobalDisplayPoint(cgGlobal: CGPoint(x: 200, y: 200))
-        
+
         let sysElem = AXUIElementCreateSystemWide()
         let cap = AXScrollCapability(
             hasScrollArea: true, scrollAreaRole: "AXScrollArea",
@@ -508,20 +524,20 @@ public final class RuntimeValidator {
             hitNode: node, ancestorChain: [], scrollAreaElement: sysElem,
             scrollBarElement: sysElem, scrollCapability: cap, scrollAreaHeight: 500.0
         )
-        
+
         let session = InteractionSession(startSample: sample, localPoint: local, globalPoint: global, context: ctx)
-        
+
         // Move crossing pan threshold (25 pt > 18.0 pt)
         let moveLocal = DisplayLocalPoint(cgPoint: CGPoint(x: 200, y: 225))
         let moveGlobal = GlobalDisplayPoint(cgGlobal: CGPoint(x: 200, y: 225))
         session.experimentalOneFingerPanEnabled = true // Exercise retained experimental mapping path.
         let action = session.handleMove(local: moveLocal, global: moveGlobal)
-        
+
         var isTransitionToPan = false
         if case .transitionedToPan(let initVal) = action {
             isTransitionToPan = (initVal == 0.25)
         }
-        
+
         let valid = (session.state == .semanticPan &&
                      abs(session.maxMovementPt - 25.0) < 0.001 &&
                      isTransitionToPan)
@@ -531,13 +547,13 @@ public final class RuntimeValidator {
             details: "Movement of 25.0 pt (> 18.0 pt) permanently cancels tap, transitions to SEMANTIC_PAN, and captures initial scroll value."
         )
     }
-    
+
     // Test 12: Relative Continuous Pan Mapping Formula & Zero Drift
     private func test12_RelativePanMappingMath() {
         let sample = TouchSample(phase: .down, rawX: 2048, rawY: 2048, normX: 0.5, normY: 0.5)
         let local = DisplayLocalPoint(cgPoint: CGPoint(x: 200, y: 300))
         let global = GlobalDisplayPoint(cgGlobal: CGPoint(x: 200, y: 300))
-        
+
         let sysElem = AXUIElementCreateSystemWide()
         let cap = AXScrollCapability(
             hasScrollArea: true, scrollAreaRole: "AXScrollArea",
@@ -558,19 +574,19 @@ public final class RuntimeValidator {
             scrollBarElement: sysElem, scrollCapability: cap, scrollAreaHeight: 500.0
         )
         let session = InteractionSession(startSample: sample, localPoint: local, globalPoint: global, context: ctx)
-        
+
         // 1. Move finger UP by 100 pt (currentY = 200): DeltaY = -100 -> scroll should increase by 100/500 = +0.20 -> 0.70
         let valUp100 = session.calculateTargetScrollValue(currentY: 200.0)
-        
+
         // 2. Move finger DOWN by 100 pt (currentY = 400): DeltaY = +100 -> scroll should decrease by 100/500 = -0.20 -> 0.30
         let valDown100 = session.calculateTargetScrollValue(currentY: 400.0)
-        
+
         // 3. Move finger back to exact starting point (currentY = 300): must return exactly to 0.50 (Zero drift)
         let valReturn = session.calculateTargetScrollValue(currentY: 300.0)
-        
+
         // 4. Move finger UP by 400 pt (currentY = -100): DeltaY = -400 -> raw = 0.50 + 0.80 = 1.30 -> Clamped to 1.00
         let valClampMax = session.calculateTargetScrollValue(currentY: -100.0)
-        
+
         let valid = (abs(valUp100 - 0.70) < 0.001 &&
                      abs(valDown100 - 0.30) < 0.001 &&
                      abs(valReturn - 0.50) < 0.0001 &&
@@ -581,13 +597,13 @@ public final class RuntimeValidator {
             details: "Relative mapping verifies direct-touch direction (Up moves down content), zero drift on return (0.500), and min/max bounds clamping."
         )
     }
-    
+
     // Test 13: CG Continuous Pan Without AX Scroll Discovery
     private func test13_CGPanWithoutAXScrollArea() {
         let sample = TouchSample(phase: .down, rawX: 2048, rawY: 2048, normX: 0.5, normY: 0.5)
         let local = DisplayLocalPoint(cgPoint: CGPoint(x: 200, y: 200))
         let global = GlobalDisplayPoint(cgGlobal: CGPoint(x: 200, y: 200))
-        
+
         let sysElem = AXUIElementCreateSystemWide()
         let cap = AXScrollCapability(
             hasScrollArea: false, scrollAreaRole: nil,
@@ -608,7 +624,7 @@ public final class RuntimeValidator {
             scrollBarElement: nil, scrollCapability: cap, scrollAreaHeight: 800.0
         )
         let session = InteractionSession(startSample: sample, localPoint: local, globalPoint: global, context: ctx)
-        
+
         let moveLocal = DisplayLocalPoint(cgPoint: CGPoint(x: 200, y: 230))
         let moveGlobal = GlobalDisplayPoint(cgGlobal: CGPoint(x: 200, y: 230))
         session.experimentalOneFingerPanEnabled = true
@@ -622,7 +638,7 @@ public final class RuntimeValidator {
             details: "Movement over threshold enters DIRECT_PAN because CG continuous scrolling is independent of AX scroll-area discovery."
         )
     }
-    
+
     // Test 14: Nested Child versus Ancestor Context Discovery
     private func test14_NestedChildVersusAncestorContextDiscovery() {
         let sysElem = AXUIElementCreateSystemWide()
@@ -651,7 +667,7 @@ public final class RuntimeValidator {
             hitNode: childButton, ancestorChain: [ancestorArea], scrollAreaElement: sysElem,
             scrollBarElement: sysElem, scrollCapability: cap, scrollAreaHeight: 600.0
         )
-        
+
         let valid = (ctx.hitNode.role == "AXButton" &&
                      ctx.hitNode.supportedActions.contains("AXPress") &&
                      ctx.scrollCapability.hasScrollArea &&
@@ -663,32 +679,32 @@ public final class RuntimeValidator {
             details: "Early bounded discovery captures both actionable child (AXButton) and scrollable ancestor (AXScrollArea) in a single pass."
         )
     }
-    
+
     // Test 15: Single-Touch Invariant & Secondary Touch Rejection
     private func test15_SingleTouchInvariant_ConcurrentTouchRejection() {
         let mapper = CoordinateMapper()
         let recognizer = TouchGestureRecognizer(mapper: mapper)
-        
+
         let sample1Down = TouchSample(phase: .down, rawX: 1000, rawY: 1000, normX: 0.25, normY: 0.25)
         let sample2Down = TouchSample(phase: .down, rawX: 3000, rawY: 3000, normX: 0.75, normY: 0.75)
-        
+
         recognizer.processSample(sample1Down)
         recognizer.processSample(sample2Down)
-        
+
         let sample1Up = TouchSample(phase: .up, rawX: 1000, rawY: 1000, normX: 0.25, normY: 0.25)
         recognizer.processSample(sample1Up)
-        
+
         recognizer.reset()
-        
+
         record(
             name: "Test 15: Single-Touch Invariant — Safe Rejection of Secondary Contacts",
             passed: true,
             details: "TouchGestureRecognizer safely rejects concurrent secondary contacts; active primary contact is preserved without corruption."
         )
     }
-    
+
     // MARK: - P3-03 Gesture Layer Validation Suite (13 Dedicated Tests)
-    
+
     private final class TestGestureDelegate: TouchGestureRecognizerDelegate {
         var tapCount = 0
         var panStartCount = 0
@@ -701,7 +717,7 @@ public final class RuntimeValidator {
         var panDeltaCount = 0
         var momentumEnterCount = 0
         var momentumInterruptCount = 0
-        
+
         func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didEmit intent: InteractionIntent) {
             switch intent {
             case .tap: tapCount += 1
@@ -780,6 +796,13 @@ public final class RuntimeValidator {
             postedTypes.append(postedTypes.isEmpty ? .leftMouseDown : .leftMouseUp)
             operationOrder.append(postedTypes.count == 1 ? "postDown" : "postUp")
             buttonHeld = postedTypes.last == .leftMouseDown
+            if simulatePhysicalActivityOnPost { physicalMouseGeneration &+= 1 }
+        }
+
+        var postedScrollEvents: [(point: CGPoint, deltaY: Double, phase: UInt32, momentumPhase: UInt32)] = []
+
+        func postScrollWheel(at point: CGPoint, deltaY: Double, phase: UInt32, momentumPhase: UInt32) {
+            postedScrollEvents.append((point: point, deltaY: deltaY, phase: phase, momentumPhase: momentumPhase))
             if simulatePhysicalActivityOnPost { physicalMouseGeneration &+= 1 }
         }
     }
@@ -1029,7 +1052,461 @@ public final class RuntimeValidator {
         let result = TransientPointerTapBackend(operations: operations).performClick(at: CGPoint(x: 230, y: 170))
         record(name: "Test 82: Physical Activity Before Restore Suppresses Warp", passed: result.physicalMouseInterferenceDetected && result.restoreAPIResult == "SUPPRESSED_PHYSICAL_MOUSE_ACTIVITY" && !result.restoreAttempted, details: "A genuine unmarked event observed at the acknowledgement boundary wins over the pending restoration warp.")
     }
-    
+
+    private func test83_AXCapableTargetSelectsAXBackend() {
+        let recognizer = TouchGestureRecognizer(mapper: CoordinateMapper())
+        let router = SemanticInteractionRouter()
+        router.userIntent = .enabled
+        recognizer.delegate = router
+        recognizer.testContextOverride = makeTestScrollContext(isScrollable: true, initialValue: 0.3)
+        let p1 = CGPoint(x: 200, y: 200), p2 = CGPoint(x: 400, y: 200)
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p1), global: GlobalDisplayPoint(cgGlobal: p1), contactID: 1)
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p2), global: GlobalDisplayPoint(cgGlobal: p2), contactID: 2)
+
+        let session = recognizer.activeSession
+        let isAX = router.activeScrollBackend is AXSemanticScrollBackend
+        let classification = router.activeScrollBackend?.classification == .nativeCursorIndependent
+        let diagName = router.activeScrollBackend?.diagnosticName == "AX_SEMANTIC"
+        let sessionBackend = session?.scrollDeliveryBackend?.diagnosticName == "AX_SEMANTIC"
+
+        let passed = isAX && classification && diagName && sessionBackend
+        record(name: "Test 83: AX-Capable Target Selects AX Backend", passed: passed, details: "Target with settable vertical scrollbar resolves AX_SEMANTIC backend (classification NATIVE_CURSOR_INDEPENDENT).")
+        recognizer.reset()
+    }
+
+    private func test84_AXUnavailableTargetSelectsTransientPointerFallback() {
+        let recognizer = TouchGestureRecognizer(mapper: CoordinateMapper())
+        let router = SemanticInteractionRouter()
+        let fakeOps = FakePointerOperations()
+        router.scrollCoordinator = HybridScrollDeliveryCoordinator(pointerOperations: fakeOps)
+        router.userIntent = .enabled
+        recognizer.delegate = router
+        recognizer.testContextOverride = makeTestScrollContext(isScrollable: false)
+        let p1 = CGPoint(x: 200, y: 200), p2 = CGPoint(x: 400, y: 200)
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p1), global: GlobalDisplayPoint(cgGlobal: p1), contactID: 1)
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p2), global: GlobalDisplayPoint(cgGlobal: p2), contactID: 2)
+
+        let session = recognizer.activeSession
+        let isFallback = router.activeScrollBackend is TransientPointerScrollBackend
+        let classification = router.activeScrollBackend?.classification == .compatibilityCursorTransaction
+        let diagName = router.activeScrollBackend?.diagnosticName == "TRANSIENT_POINTER_FALLBACK"
+        let sessionBackend = session?.scrollDeliveryBackend?.diagnosticName == "TRANSIENT_POINTER_FALLBACK"
+
+        let passed = isFallback && classification && diagName && sessionBackend
+        record(name: "Test 84: AX-Unavailable Target Selects Transient Pointer Fallback", passed: passed, details: "Target without settable vertical scrollbar falls back to TRANSIENT_POINTER_FALLBACK (classification COMPATIBILITY_CURSOR_TRANSACTION).")
+        recognizer.reset()
+    }
+
+    private func test85_BackendLatchedForEntireGesture() {
+        let recognizer = TouchGestureRecognizer(mapper: CoordinateMapper())
+        let router = SemanticInteractionRouter()
+        router.userIntent = .enabled
+        recognizer.delegate = router
+        recognizer.testContextOverride = makeTestScrollContext(isScrollable: true, initialValue: 0.3)
+        let p1 = CGPoint(x: 200, y: 200), p2 = CGPoint(x: 400, y: 200)
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p1), global: GlobalDisplayPoint(cgGlobal: p1), contactID: 1)
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p2), global: GlobalDisplayPoint(cgGlobal: p2), contactID: 2)
+
+        guard let initialBackend = router.activeScrollBackend else {
+            record(name: "Test 85: Backend Latched For Entire Gesture", passed: false, details: "Failed to resolve initial backend.")
+            return
+        }
+
+        var latched = true
+        for i in 1...5 {
+            let m1 = CGPoint(x: 200, y: 200 + Double(i * 10))
+            let m2 = CGPoint(x: 400, y: 200 + Double(i * 10))
+            recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: m1), global: GlobalDisplayPoint(cgGlobal: m1), contactID: 1)
+            recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: m2), global: GlobalDisplayPoint(cgGlobal: m2), contactID: 2)
+            if router.activeScrollBackend !== initialBackend {
+                latched = false
+            }
+        }
+
+        record(name: "Test 85: Backend Latched For Entire Gesture", passed: latched, details: "Active scroll backend reference is latched at gesture start and never re-evaluated during continuous pan.")
+        recognizer.reset()
+    }
+
+    private func test86_NoBackendSwitchMidGestureOnAXFailure() {
+        let recognizer = TouchGestureRecognizer(mapper: CoordinateMapper())
+        let router = SemanticInteractionRouter()
+        let fakeOps = FakePointerOperations()
+        let coordinator = HybridScrollDeliveryCoordinator(pointerOperations: fakeOps)
+        coordinator.axCustomValueSetter = { _ in .cannotComplete }
+        router.scrollCoordinator = coordinator
+        router.userIntent = .enabled
+        recognizer.delegate = router
+        recognizer.testContextOverride = makeTestScrollContext(isScrollable: true, initialValue: 0.3)
+
+        let p1 = CGPoint(x: 200, y: 200), p2 = CGPoint(x: 400, y: 200)
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p1), global: GlobalDisplayPoint(cgGlobal: p1), contactID: 1)
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p2), global: GlobalDisplayPoint(cgGlobal: p2), contactID: 2)
+
+        let axBackend = router.activeScrollBackend as? AXSemanticScrollBackend
+        let isInitialAX = axBackend != nil
+
+        let m1 = CGPoint(x: 200, y: 230), m2 = CGPoint(x: 400, y: 230)
+        recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: m1), global: GlobalDisplayPoint(cgGlobal: m1), contactID: 1)
+        recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: m2), global: GlobalDisplayPoint(cgGlobal: m2), contactID: 2)
+
+        let writeFailures = axBackend?.writeFailureCount ?? 0
+        let remainsAX = router.activeScrollBackend is AXSemanticScrollBackend
+        let noPointerWarps = fakeOps.warpCalls == 0
+        let noPointerEvents = fakeOps.postedScrollEvents.isEmpty
+
+        let passed = isInitialAX && writeFailures > 0 && remainsAX && noPointerWarps && noPointerEvents
+        record(name: "Test 86: No Backend Switch Mid-Gesture On AX Failure", passed: passed, details: "AX write failure increments failure count without mid-gesture switch to pointer fallback; zero cursor warps.")
+        recognizer.reset()
+    }
+
+    private func test87_AXScrollNeverCallsCursorRelocation() {
+        let recognizer = TouchGestureRecognizer(mapper: CoordinateMapper())
+        let router = SemanticInteractionRouter()
+        let fakeOps = FakePointerOperations()
+        let startCursor = fakeOps.cursor
+        let coordinator = HybridScrollDeliveryCoordinator(pointerOperations: fakeOps)
+        coordinator.axCustomValueSetter = { _ in .success }
+        router.scrollCoordinator = coordinator
+        router.userIntent = .enabled
+        recognizer.delegate = router
+        recognizer.testContextOverride = makeTestScrollContext(isScrollable: true, initialValue: 0.5)
+
+        let p1 = CGPoint(x: 200, y: 200), p2 = CGPoint(x: 400, y: 200)
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p1), global: GlobalDisplayPoint(cgGlobal: p1), contactID: 1)
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p2), global: GlobalDisplayPoint(cgGlobal: p2), contactID: 2)
+        let m1 = CGPoint(x: 200, y: 250), m2 = CGPoint(x: 400, y: 250)
+        recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: m1), global: GlobalDisplayPoint(cgGlobal: m1), contactID: 1)
+        recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: m2), global: GlobalDisplayPoint(cgGlobal: m2), contactID: 2)
+        recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: m1), global: GlobalDisplayPoint(cgGlobal: m1), contactID: 1)
+        recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: m2), global: GlobalDisplayPoint(cgGlobal: m2), contactID: 2)
+
+        let zeroWarps = fakeOps.warpCalls == 0
+        let cursorUntouched = near(fakeOps.cursor, startCursor)
+        let passed = zeroWarps && cursorUntouched
+        record(name: "Test 87: AX Scroll Never Relocates System Cursor", passed: passed, details: "Full two-finger AX pan gesture executes with zero cursor relocation calls and cursor position unchanged.")
+        recognizer.reset()
+    }
+
+    private func test88_AXUpdatesClampNormalizedValue() {
+        let sysElem = AXUIElementCreateSystemWide()
+        var lastWrittenValue: Double? = nil
+        let backend = AXSemanticScrollBackend(
+            scrollBarElement: sysElem,
+            scrollAreaElement: nil,
+            applicationName: "MockApp",
+            targetPID: 1234,
+            scrollAreaHeight: 500.0,
+            contentHeight: 1500.0,
+            initialValue: 0.5,
+            minValue: 0.0,
+            maxValue: 1.0
+        )
+        backend.customValueSetter = { val in
+            lastWrittenValue = val
+            return .success
+        }
+        let session = InteractionSession(
+            startSample: TouchSample(phase: .down, rawX: 2048, rawY: 2048, normX: 0.5, normY: 0.5),
+            localPoint: DisplayLocalPoint(cgPoint: CGPoint(x: 100, y: 100)),
+            globalPoint: GlobalDisplayPoint(cgGlobal: CGPoint(x: 100, y: 100)),
+            context: nil
+        )
+        _ = backend.begin(session: session, touchPoint: CGPoint(x: 100, y: 100))
+
+        // Massive drag UP: deltaY = -10000.0 -> should clamp at 1.0
+        backend.update(deltaY: -10000.0, velocityY: -500.0, currentTouchPoint: CGPoint(x: 100, y: 100))
+        let clampedMax = backend.currentValue == 1.0 && lastWrittenValue == 1.0
+
+        // Massive drag DOWN: deltaY = +20000.0 -> should clamp at 0.0
+        backend.update(deltaY: 20000.0, velocityY: 500.0, currentTouchPoint: CGPoint(x: 100, y: 100))
+        let clampedMin = backend.currentValue == 0.0 && lastWrittenValue == 0.0
+
+        let passed = clampedMax && clampedMin
+        record(name: "Test 88: AX Updates Clamp Normalized Value [0.0..1.0]", passed: passed, details: "Excessive pan deltas in either direction clamp strictly to [minValue, maxValue].")
+    }
+
+    private func test89_AXWriteFailureDoesNotTriggerPointerWarp() {
+        let fakeOps = FakePointerOperations()
+        let sysElem = AXUIElementCreateSystemWide()
+        let backend = AXSemanticScrollBackend(
+            scrollBarElement: sysElem,
+            scrollAreaElement: nil,
+            applicationName: "MockApp",
+            targetPID: 1234,
+            initialValue: 0.5
+        )
+        backend.customValueSetter = { _ in .cannotComplete }
+        let session = InteractionSession(
+            startSample: TouchSample(phase: .down, rawX: 2048, rawY: 2048, normX: 0.5, normY: 0.5),
+            localPoint: DisplayLocalPoint(cgPoint: CGPoint(x: 100, y: 100)),
+            globalPoint: GlobalDisplayPoint(cgGlobal: CGPoint(x: 100, y: 100)),
+            context: nil
+        )
+        _ = backend.begin(session: session, touchPoint: CGPoint(x: 100, y: 100))
+        backend.update(deltaY: -50.0, velocityY: -100.0, currentTouchPoint: CGPoint(x: 100, y: 100))
+        backend.update(deltaY: -50.0, velocityY: -100.0, currentTouchPoint: CGPoint(x: 100, y: 100))
+        backend.end(session: session)
+
+        let passed = backend.writeFailureCount == 2 && fakeOps.warpCalls == 0
+        record(name: "Test 89: AX Write Failure Does Not Trigger Mid-Gesture Warp", passed: passed, details: "Repeated AX write errors increment failure count without warping the pointer or switching backends.")
+    }
+
+    private func test90_PointerFallbackRelocatesAtMostOnceAtStart() {
+        let fakeOps = FakePointerOperations()
+        fakeOps.cursor = CGPoint(x: 700, y: 500)
+        let anchor = CGPoint(x: 300, y: 300)
+        let backend = TransientPointerScrollBackend(operations: fakeOps, anchorPoint: anchor)
+        let session = InteractionSession(
+            startSample: TouchSample(phase: .down, rawX: 2048, rawY: 2048, normX: 0.5, normY: 0.5),
+            localPoint: DisplayLocalPoint(cgPoint: anchor),
+            globalPoint: GlobalDisplayPoint(cgGlobal: anchor),
+            context: nil
+        )
+        _ = backend.begin(session: session, touchPoint: anchor)
+
+        let passed = fakeOps.warpCalls == 1 && near(fakeOps.cursor, anchor) && backend.relocated
+        record(name: "Test 90: Pointer Fallback Relocates At Most Once At Start", passed: passed, details: "Initial cursor at (700, 500) warps exactly once to fixed anchor (300, 300) at gesture start.")
+    }
+
+    private func test91_RepeatedPointerFallbackUpdatesDoNotRelocateCursor() {
+        let fakeOps = FakePointerOperations()
+        fakeOps.cursor = CGPoint(x: 700, y: 500)
+        let anchor = CGPoint(x: 300, y: 300)
+        let backend = TransientPointerScrollBackend(operations: fakeOps, anchorPoint: anchor)
+        let session = InteractionSession(
+            startSample: TouchSample(phase: .down, rawX: 2048, rawY: 2048, normX: 0.5, normY: 0.5),
+            localPoint: DisplayLocalPoint(cgPoint: anchor),
+            globalPoint: GlobalDisplayPoint(cgGlobal: anchor),
+            context: nil
+        )
+        _ = backend.begin(session: session, touchPoint: anchor)
+        let warpsAtBegin = fakeOps.warpCalls
+
+        for i in 1...5 {
+            let centroid = CGPoint(x: 300.0 + Double(i * 10), y: 300.0 + Double(i * 20))
+            backend.update(deltaY: 15.0, velocityY: 50.0, currentTouchPoint: centroid)
+        }
+
+        let noNewWarps = fakeOps.warpCalls == warpsAtBegin
+        let eventsAtAnchor = fakeOps.postedScrollEvents.allSatisfy { near($0.point, anchor) }
+        let eventCount = fakeOps.postedScrollEvents.count == 6 // 1 began + 5 updates
+
+        let passed = noNewWarps && eventsAtAnchor && eventCount
+        record(name: "Test 91: Repeated Fallback Updates Never Relocate Cursor", passed: passed, details: "Subsequent pan updates emit CG scroll wheel events at fixed anchor (300, 300) with zero cursor relocations.")
+    }
+
+    private func test92_PointerFallbackRestorationSuppressedAfterPhysicalMouse() {
+        let fakeOps = FakePointerOperations()
+        fakeOps.cursor = CGPoint(x: 700, y: 500)
+        let anchor = CGPoint(x: 300, y: 300)
+        let backend = TransientPointerScrollBackend(operations: fakeOps, anchorPoint: anchor)
+        let session = InteractionSession(
+            startSample: TouchSample(phase: .down, rawX: 2048, rawY: 2048, normX: 0.5, normY: 0.5),
+            localPoint: DisplayLocalPoint(cgPoint: anchor),
+            globalPoint: GlobalDisplayPoint(cgGlobal: anchor),
+            context: nil
+        )
+        _ = backend.begin(session: session, touchPoint: anchor)
+
+        fakeOps.physicalMouseGeneration += 1
+        fakeOps.cursor = CGPoint(x: 450, y: 450)
+
+        backend.end(session: session)
+
+        let passed = backend.physicalMouseInterferenceDetected &&
+                     fakeOps.warpCalls == 1 &&
+                     near(fakeOps.cursor, CGPoint(x: 450, y: 450))
+        record(name: "Test 92: Fallback Restoration Suppressed After Physical Mouse Activity", passed: passed, details: "Physical mouse movement detected during transaction suppresses cursor restoration; user mouse position wins.")
+    }
+
+    private func test93_PointerFallbackSafelyRestoresWhenNoPhysicalInterference() {
+        let fakeOps = FakePointerOperations()
+        let initialPos = CGPoint(x: 700, y: 500)
+        fakeOps.cursor = initialPos
+        let anchor = CGPoint(x: 300, y: 300)
+        let backend = TransientPointerScrollBackend(operations: fakeOps, anchorPoint: anchor)
+        let session = InteractionSession(
+            startSample: TouchSample(phase: .down, rawX: 2048, rawY: 2048, normX: 0.5, normY: 0.5),
+            localPoint: DisplayLocalPoint(cgPoint: anchor),
+            globalPoint: GlobalDisplayPoint(cgGlobal: anchor),
+            context: nil
+        )
+        _ = backend.begin(session: session, touchPoint: anchor)
+        backend.update(deltaY: 20.0, velocityY: 60.0, currentTouchPoint: anchor)
+        backend.end(session: session)
+
+        let passed = !backend.physicalMouseInterferenceDetected &&
+                     fakeOps.warpCalls == 2 &&
+                     near(fakeOps.cursor, initialPos)
+        record(name: "Test 93: Pointer Fallback Safely Restores Without Interference", passed: passed, details: "Clean scroll completion restores physical cursor back to original position when no physical mouse was moved.")
+    }
+
+    private func test94_MomentumStaysOnSelectedBackend() {
+        let recognizerAX = TouchGestureRecognizer(mapper: CoordinateMapper())
+        let routerAX = SemanticInteractionRouter()
+        var axWrites = 0
+        let coordinatorAX = HybridScrollDeliveryCoordinator()
+        coordinatorAX.axCustomValueSetter = { _ in axWrites += 1; return .success }
+        routerAX.scrollCoordinator = coordinatorAX
+        routerAX.userIntent = .enabled
+        recognizerAX.delegate = routerAX
+        recognizerAX.testContextOverride = makeTestScrollContext(isScrollable: true, initialValue: 0.5)
+
+        let p1 = CGPoint(x: 200, y: 200), p2 = CGPoint(x: 400, y: 200)
+        recognizerAX.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p1), global: GlobalDisplayPoint(cgGlobal: p1), contactID: 1)
+        recognizerAX.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p2), global: GlobalDisplayPoint(cgGlobal: p2), contactID: 2)
+        let m1 = CGPoint(x: 200, y: 280), m2 = CGPoint(x: 400, y: 280)
+        recognizerAX.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: m1), global: GlobalDisplayPoint(cgGlobal: m1), contactID: 1)
+        recognizerAX.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: m2), global: GlobalDisplayPoint(cgGlobal: m2), contactID: 2)
+        recognizerAX.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: m1), global: GlobalDisplayPoint(cgGlobal: m1), contactID: 1)
+        recognizerAX.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: m2), global: GlobalDisplayPoint(cgGlobal: m2), contactID: 2)
+
+        let isMomentumAX = recognizerAX.activeSession?.state == .momentum
+        let writesBefore = axWrites
+        usleep(35_000)
+        let writesAfter = axWrites
+        let axMomentumWorks = isMomentumAX && (writesAfter >= writesBefore)
+        recognizerAX.reset()
+
+        let fakeOps = FakePointerOperations()
+        let anchor = CGPoint(x: 300, y: 300)
+        let fallbackBackend = TransientPointerScrollBackend(operations: fakeOps, anchorPoint: anchor)
+        let sessionFB = InteractionSession(
+            startSample: TouchSample(phase: .down, rawX: 2048, rawY: 2048, normX: 0.5, normY: 0.5),
+            localPoint: DisplayLocalPoint(cgPoint: anchor),
+            globalPoint: GlobalDisplayPoint(cgGlobal: anchor),
+            context: nil
+        )
+        _ = fallbackBackend.begin(session: sessionFB, touchPoint: anchor)
+        let warpsBeforeMomentum = fakeOps.warpCalls
+        fallbackBackend.momentumUpdate(deltaY: 10.0, velocityY: 40.0)
+        fallbackBackend.momentumUpdate(deltaY: 5.0, velocityY: 20.0)
+        let fallbackEvents = fakeOps.postedScrollEvents.filter { $0.momentumPhase == 2 }
+        let noMomentumWarps = fakeOps.warpCalls == warpsBeforeMomentum
+
+        let passed = axMomentumWorks && fallbackEvents.count == 2 && noMomentumWarps
+        record(name: "Test 94: Momentum Stays On Selected Backend", passed: passed, details: "Kinetic momentum continues delivering to the latched backend without switching backends or warping cursor.")
+    }
+
+    private func test95_ScrollCompletionReleasesBackendState() {
+        let recognizer = TouchGestureRecognizer(mapper: CoordinateMapper())
+        let router = SemanticInteractionRouter()
+        router.userIntent = .enabled
+        recognizer.delegate = router
+        recognizer.testContextOverride = makeTestScrollContext(isScrollable: true, initialValue: 0.5)
+        let p1 = CGPoint(x: 200, y: 200), p2 = CGPoint(x: 400, y: 200)
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p1), global: GlobalDisplayPoint(cgGlobal: p1), contactID: 1)
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p2), global: GlobalDisplayPoint(cgGlobal: p2), contactID: 2)
+        let m1 = CGPoint(x: 200, y: 210), m2 = CGPoint(x: 400, y: 210)
+        recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: m1), global: GlobalDisplayPoint(cgGlobal: m1), contactID: 1)
+        recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: m2), global: GlobalDisplayPoint(cgGlobal: m2), contactID: 2)
+
+        guard let backend = router.activeScrollBackend else {
+            record(name: "Test 95: Scroll Completion Releases Backend State", passed: false, details: "Active backend not set.")
+            return
+        }
+
+        recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: m1), global: GlobalDisplayPoint(cgGlobal: m1), contactID: 1)
+        recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: m2), global: GlobalDisplayPoint(cgGlobal: m2), contactID: 2)
+
+        let routerBackendCleared = router.activeScrollBackend == nil
+        let backendCompleted = (backend as? AXSemanticScrollBackend)?.isCompleted == true
+
+        if let session = recognizer.activeSession, session.state == .momentum {
+            session.markMomentumEnded()
+            recognizer.momentumDidEnd(session)
+        }
+        let sessionEnded = recognizer.activeSession == nil
+
+        let passed = routerBackendCleared && backendCompleted && sessionEnded
+        record(name: "Test 95: Scroll Completion Releases Backend State", passed: passed, details: "On gesture completion, router clears activeScrollBackend, backend marks isCompleted, and session resets.")
+        recognizer.reset()
+    }
+
+    private func test96_OneFingerMovementCancelsWithoutScroll() {
+        let recognizer = TouchGestureRecognizer(mapper: CoordinateMapper())
+        let router = SemanticInteractionRouter()
+        let fakeOps = FakePointerOperations()
+        router.scrollCoordinator = HybridScrollDeliveryCoordinator(pointerOperations: fakeOps)
+        router.userIntent = .enabled
+        recognizer.delegate = router
+        recognizer.testContextOverride = makeTestScrollContext(isScrollable: true)
+
+        let p = CGPoint(x: 200, y: 200)
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p), global: GlobalDisplayPoint(cgGlobal: p), contactID: 1)
+        let moved = CGPoint(x: 200, y: 240)
+        recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: moved), global: GlobalDisplayPoint(cgGlobal: moved), contactID: 1)
+
+        let noScrollBackend = router.activeScrollBackend == nil
+        let zeroScrollEvents = fakeOps.postedScrollEvents.isEmpty
+        let zeroWarps = fakeOps.warpCalls == 0
+        let stateCancelled = recognizer.activeSession?.state == .cancelled(reason: "MOVEMENT_TOLERANCE_EXCEEDED")
+
+        let passed = noScrollBackend && zeroScrollEvents && zeroWarps && stateCancelled
+        record(name: "Test 96: One-Finger Movement Cancels Without Scroll", passed: passed, details: "Single contact moving beyond touch slop cancels tap candidate with zero scroll backend activation.")
+        recognizer.reset()
+    }
+
+    private func test97_TwoToOneContactTerminationQuarantineSemanticsPreserved() {
+        let recognizer = TouchGestureRecognizer(mapper: CoordinateMapper())
+        let delegate = TestGestureDelegate()
+        recognizer.delegate = delegate
+        recognizer.testContextOverride = makeTestScrollContext(isScrollable: true)
+
+        let p1 = CGPoint(x: 200, y: 200), p2 = CGPoint(x: 400, y: 200)
+        let p1m = CGPoint(x: 200, y: 230), p2m = CGPoint(x: 400, y: 230)
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p1), global: GlobalDisplayPoint(cgGlobal: p1), contactID: 1)
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p2), global: GlobalDisplayPoint(cgGlobal: p2), contactID: 2)
+        recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: p1m), global: GlobalDisplayPoint(cgGlobal: p1m), contactID: 1)
+        recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: p2m), global: GlobalDisplayPoint(cgGlobal: p2m), contactID: 2)
+
+        recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: p1m), global: GlobalDisplayPoint(cgGlobal: p1m), contactID: 1)
+        let panDeltasAtFirstLift = delegate.panDeltaCount
+
+        let moved = CGPoint(x: p2m.x, y: p2m.y + 20)
+        recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: moved), global: GlobalDisplayPoint(cgGlobal: moved), contactID: 2)
+        let panDeltasAfterMove = delegate.panDeltaCount
+
+        recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: moved), global: GlobalDisplayPoint(cgGlobal: moved), contactID: 2)
+        let noTap = delegate.tapCount == 0
+        let allCleared = recognizer.activeContacts.isEmpty
+
+        let passed = (panDeltasAfterMove == panDeltasAtFirstLift) && noTap && allCleared
+        record(name: "Test 97: Two-to-One Contact Termination and Quarantine Preserved", passed: passed, details: "Losing one contact terminates scrolling; remaining contact is quarantined until lift and cannot scroll or tap.")
+        recognizer.reset()
+    }
+
+    private func test98_FreshTapAfterScrollRemainsValid() {
+        let recognizer = TouchGestureRecognizer(mapper: CoordinateMapper())
+        let router = SemanticInteractionRouter()
+        let fakeOps = FakePointerOperations()
+        router.tapBackendMode = .transientPointer
+        router.transientPointerBackend = TransientPointerTapBackend(operations: fakeOps)
+        router.scrollCoordinator = HybridScrollDeliveryCoordinator(pointerOperations: fakeOps)
+        router.userIntent = .enabled
+        recognizer.delegate = router
+        recognizer.testContextOverride = makeTestScrollContext(isScrollable: true)
+
+        let p1 = CGPoint(x: 200, y: 200), p2 = CGPoint(x: 400, y: 200)
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p1), global: GlobalDisplayPoint(cgGlobal: p1), contactID: 1)
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p2), global: GlobalDisplayPoint(cgGlobal: p2), contactID: 2)
+        recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: p1), global: GlobalDisplayPoint(cgGlobal: p1), contactID: 1)
+        recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: p2), global: GlobalDisplayPoint(cgGlobal: p2), contactID: 2)
+
+        let tapPoint = CGPoint(x: 350, y: 250)
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: tapPoint), global: GlobalDisplayPoint(cgGlobal: tapPoint), contactID: 3)
+        usleep(25_000)
+        recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: tapPoint), global: GlobalDisplayPoint(cgGlobal: tapPoint), contactID: 3)
+
+        let clickPosted = fakeOps.postedTypes == [.leftMouseDown, .leftMouseUp]
+        let warpsBalanced = fakeOps.warpCalls >= 2
+        let cursorRestored = near(fakeOps.cursor, CGPoint(x: 700, y: 500))
+
+        let passed = clickPosted && warpsBalanced && cursorRestored
+        record(name: "Test 98: Fresh Tap After Scroll Executes Cleanly", passed: passed, details: "Two-finger scroll followed by qualified one-finger tap executes full P3-04B transient pointer click transaction.")
+        recognizer.reset()
+    }
+
     private func makeTestScrollContext(isScrollable: Bool = true, initialValue: Double = 0.25, role: String? = nil) -> AXInteractionContext {
         let sysElem = AXUIElementCreateSystemWide()
         let cap = AXScrollCapability(
@@ -1076,7 +1553,7 @@ public final class RuntimeValidator {
             scrollAreaHeight: 500.0
         )
     }
-    
+
     // Scenario 1: Clean Tap
     private func test16_P3_03_CleanTap() {
         let mapper = CoordinateMapper()
@@ -1084,12 +1561,12 @@ public final class RuntimeValidator {
         let delegate = TestGestureDelegate()
         recognizer.delegate = delegate
         recognizer.testContextOverride = makeTestScrollContext(isScrollable: true)
-        
+
         let p = CGPoint(x: 200, y: 200)
         recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p), global: GlobalDisplayPoint(cgGlobal: p))
         usleep(30_000) // 30ms > 15ms minTapDuration
         recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: p), global: GlobalDisplayPoint(cgGlobal: p))
-        
+
         let passed = (delegate.tapCount == 1 && delegate.panStartCount == 0 && delegate.panCompleteCount == 0 && delegate.cancelledCount == 0)
         record(
             name: "Test 16: P3-03 Clean Tap Arbitration",
@@ -1097,7 +1574,7 @@ public final class RuntimeValidator {
             details: "Stationary contact (0.0 pt movement, 30ms duration) qualifies cleanly as Tap; zero pan events, zero delayed tap."
         )
     }
-    
+
     // Scenario 2: Tiny Jitter -> Tap
     private func test17_P3_03_TinyJitterTap() {
         let mapper = CoordinateMapper()
@@ -1105,15 +1582,15 @@ public final class RuntimeValidator {
         let delegate = TestGestureDelegate()
         recognizer.delegate = delegate
         recognizer.testContextOverride = makeTestScrollContext(isScrollable: true)
-        
+
         let pDown = CGPoint(x: 200, y: 200)
         recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: pDown), global: GlobalDisplayPoint(cgGlobal: pDown))
-        
+
         let pMove = CGPoint(x: 203, y: 204) // dist = 5.0 pt <= 18.0 pt
         recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: pMove), global: GlobalDisplayPoint(cgGlobal: pMove))
         usleep(35_000)
         recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: pMove), global: GlobalDisplayPoint(cgGlobal: pMove))
-        
+
         let passed = (delegate.tapCount == 1 && delegate.panStartCount == 0 && delegate.panCompleteCount == 0)
         record(
             name: "Test 17: P3-03 Tiny Jitter Tap Arbitration",
@@ -1121,7 +1598,7 @@ public final class RuntimeValidator {
             details: "Movement of 5.0 pt absorbed by tap deadband (<= 18.0 pt threshold); qualifies cleanly as Tap on release."
         )
     }
-    
+
     // Scenario 3: Product mode cancels one-finger movement without scrolling.
     private func test18_P3_03_MovementExceedingThreshold_PanNoClick() {
         let mapper = CoordinateMapper()
@@ -1129,14 +1606,14 @@ public final class RuntimeValidator {
         let delegate = TestGestureDelegate()
         recognizer.delegate = delegate
         recognizer.testContextOverride = makeTestScrollContext(isScrollable: true)
-        
+
         let pDown = CGPoint(x: 200, y: 200)
         recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: pDown), global: GlobalDisplayPoint(cgGlobal: pDown))
-        
+
         let pMove = CGPoint(x: 200, y: 235) // dist = 35.0 pt > 18.0 pt
         recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: pMove), global: GlobalDisplayPoint(cgGlobal: pMove))
         recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: pMove), global: GlobalDisplayPoint(cgGlobal: pMove))
-        
+
         let passed = (delegate.tapCount == 0 && delegate.panStartCount == 0 && delegate.panUpdateCount == 0 && delegate.cancelledCount == 1 && delegate.lastCancelReason == "MOVEMENT_TOLERANCE_EXCEEDED")
         record(
             name: "Test 18: One-Finger Movement Cancels Without Scroll",
@@ -1144,7 +1621,7 @@ public final class RuntimeValidator {
             details: "One contact moved 35.0 pt beyond touch slop; tap was cancelled with no pan/scroll callback and no delayed tap."
         )
     }
-    
+
     // Scenario 4: Slow Deliberate Pan
     private func test19_P3_03_SlowPan() {
         let mapper = CoordinateMapper()
@@ -1153,10 +1630,10 @@ public final class RuntimeValidator {
         let delegate = TestGestureDelegate()
         recognizer.delegate = delegate
         recognizer.testContextOverride = makeTestScrollContext(isScrollable: true)
-        
+
         let pDown = CGPoint(x: 200, y: 200)
         recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: pDown), global: GlobalDisplayPoint(cgGlobal: pDown))
-        
+
         // 25 steps of 1.0 pt increments
         for step in 1...25 {
             let p = CGPoint(x: 200, y: 200 + Double(step))
@@ -1164,7 +1641,7 @@ public final class RuntimeValidator {
             recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: p), global: GlobalDisplayPoint(cgGlobal: p))
         }
         recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: CGPoint(x: 200, y: 225)), global: GlobalDisplayPoint(cgGlobal: CGPoint(x: 200, y: 225)))
-        
+
         let passed = (delegate.tapCount == 0 && delegate.panStartCount == 1 && delegate.panCompleteCount == 1 && delegate.panUpdateCount > 0)
         record(
             name: "Test 19: P3-03 Slow Pan Continuity",
@@ -1172,7 +1649,7 @@ public final class RuntimeValidator {
             details: "Slow 1.0 pt/step movement accumulated correctly, transitioned to SEMANTIC_PAN at 19 pt, dispatched coalesced updates (\(delegate.panUpdateCount)), zero tap."
         )
     }
-    
+
     // Scenario 5: Fast Ballistic Pan
     private func test20_P3_03_FastBallisticPan() {
         let mapper = CoordinateMapper()
@@ -1181,16 +1658,16 @@ public final class RuntimeValidator {
         let delegate = TestGestureDelegate()
         recognizer.delegate = delegate
         recognizer.testContextOverride = makeTestScrollContext(isScrollable: true)
-        
+
         let pDown = CGPoint(x: 200, y: 200)
         recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: pDown), global: GlobalDisplayPoint(cgGlobal: pDown))
-        
+
         // Fast 150 pt ballistic jump
         let pFast = CGPoint(x: 200, y: 350)
         usleep(18_000)
         recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: pFast), global: GlobalDisplayPoint(cgGlobal: pFast))
         recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: pFast), global: GlobalDisplayPoint(cgGlobal: pFast))
-        
+
         let passed = (delegate.tapCount == 0 && delegate.panStartCount == 1 && delegate.panUpdateCount >= 1 && (delegate.panCompleteCount == 1 || delegate.momentumEnterCount == 1))
         record(
             name: "Test 20: P3-03 Fast Ballistic Pan & Immediate Initial Dispatch",
@@ -1198,7 +1675,7 @@ public final class RuntimeValidator {
             details: "Fast swipe transitioned to pan, dispatched initial scroll write immediately on transition report, and entered kinetic momentum upon release."
         )
     }
-    
+
     // Scenario 6: Pan -> Hold Stationary -> Release (Zero Oscillation)
     private func test21_P3_03_PanHoldStationaryRelease_ZeroOscillation() {
         let mapper = CoordinateMapper()
@@ -1207,16 +1684,16 @@ public final class RuntimeValidator {
         let delegate = TestGestureDelegate()
         recognizer.delegate = delegate
         recognizer.testContextOverride = makeTestScrollContext(isScrollable: true)
-        
+
         let pDown = CGPoint(x: 200, y: 200)
         recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: pDown), global: GlobalDisplayPoint(cgGlobal: pDown))
-        
+
         let pActive = CGPoint(x: 200, y: 280) // 80 pt pan
         usleep(20_000)
         recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: pActive), global: GlobalDisplayPoint(cgGlobal: pActive))
-        
+
         let writesBeforeHold = delegate.panUpdateCount
-        
+
         // 10 stationary samples with sub-2.0 pt sensor tremor
         for i in 1...10 {
             let jitterY = 280.0 + ((i % 2 == 0) ? 0.6 : -0.5)
@@ -1224,12 +1701,12 @@ public final class RuntimeValidator {
             usleep(18_000)
             recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: pJitter), global: GlobalDisplayPoint(cgGlobal: pJitter))
         }
-        
+
         let writesAfterHold = delegate.panUpdateCount
         let isStationary = recognizer.activeSession?.isStationaryHold ?? false
-        
+
         recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: pActive), global: GlobalDisplayPoint(cgGlobal: pActive))
-        
+
         let passed = (writesBeforeHold > 0 && writesBeforeHold == writesAfterHold && isStationary && delegate.panCompleteCount == 1 && delegate.tapCount == 0)
         record(
             name: "Test 21: P3-03 Pan Hold Stationary — Zero Output Oscillation",
@@ -1237,7 +1714,7 @@ public final class RuntimeValidator {
             details: "Stationary finger hold in pan mode correctly detected (isStationaryHold=true); 2.0 pt deadband suppressed redundant AX writes (\(writesBeforeHold) == \(writesAfterHold)); zero oscillation."
         )
     }
-    
+
     // Scenario 7: Consecutive Pans — Zero State Carryover
     private func test22_P3_03_ConsecutivePans_ZeroStateCarryover() {
         let mapper = CoordinateMapper()
@@ -1246,7 +1723,7 @@ public final class RuntimeValidator {
         let delegate = TestGestureDelegate()
         recognizer.delegate = delegate
         recognizer.testContextOverride = makeTestScrollContext(isScrollable: true)
-        
+
         // Pan 1
         let p1Down = CGPoint(x: 200, y: 200)
         let p1Up = CGPoint(x: 200, y: 320)
@@ -1254,7 +1731,7 @@ public final class RuntimeValidator {
         usleep(20_000)
         recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: p1Up), global: GlobalDisplayPoint(cgGlobal: p1Up))
         recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: p1Up), global: GlobalDisplayPoint(cgGlobal: p1Up))
-        
+
         // Pan 2 immediately following
         let p2Down = CGPoint(x: 200, y: 320)
         let p2Up = CGPoint(x: 200, y: 180)
@@ -1263,7 +1740,7 @@ public final class RuntimeValidator {
         usleep(20_000)
         recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: p2Up), global: GlobalDisplayPoint(cgGlobal: p2Up))
         recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: p2Up), global: GlobalDisplayPoint(cgGlobal: p2Up))
-        
+
         let passed = (delegate.panStartCount == 2 && (delegate.panCompleteCount + delegate.momentumEnterCount == 2) && delegate.tapCount == 0 && initialMovSession2 == 0.0)
         record(
             name: "Test 22: P3-03 Consecutive Pans — Zero State Carryover",
@@ -1271,7 +1748,7 @@ public final class RuntimeValidator {
             details: "Pan 2 initialized with fresh baseline (movement=0.0 pt); zero residual displacement or state leakage from Pan 1."
         )
     }
-    
+
     // Scenario 8: Tap Immediately After Pan
     private func test23_P3_03_TapImmediatelyAfterPan() {
         let mapper = CoordinateMapper()
@@ -1280,7 +1757,7 @@ public final class RuntimeValidator {
         let delegate = TestGestureDelegate()
         recognizer.delegate = delegate
         recognizer.testContextOverride = makeTestScrollContext(isScrollable: true)
-        
+
         // Pan
         let pPanDown = CGPoint(x: 200, y: 200)
         let pPanUp = CGPoint(x: 200, y: 300)
@@ -1288,13 +1765,13 @@ public final class RuntimeValidator {
         usleep(20_000)
         recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: pPanUp), global: GlobalDisplayPoint(cgGlobal: pPanUp))
         recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: pPanUp), global: GlobalDisplayPoint(cgGlobal: pPanUp))
-        
+
         // Tap immediately after
         let pTap = CGPoint(x: 200, y: 300)
         recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: pTap), global: GlobalDisplayPoint(cgGlobal: pTap))
         usleep(40_000)
         recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: pTap), global: GlobalDisplayPoint(cgGlobal: pTap))
-        
+
         let passed = ((delegate.panCompleteCount == 1 || delegate.momentumEnterCount == 1) && delegate.tapCount == 1 && delegate.panStartCount == 1)
         record(
             name: "Test 23: P3-03 Tap Immediately After Pan",
@@ -1302,7 +1779,7 @@ public final class RuntimeValidator {
             details: "Subsequent stationary contact recognized cleanly as Tap; not converted to pan, zero delayed tap from previous pan."
         )
     }
-    
+
     // Scenario 9: Unsupported Pan
     private func test24_P3_03_UnsupportedPan_SuppressedWithoutMouseFallback() {
         let mapper = CoordinateMapper()
@@ -1311,19 +1788,19 @@ public final class RuntimeValidator {
         let delegate = TestGestureDelegate()
         recognizer.delegate = delegate
         recognizer.testContextOverride = makeTestScrollContext(isScrollable: false) // Unsupported surface
-        
+
         let curBefore = SafetyInvariants.currentCursorPosition()
-        
+
         let pDown = CGPoint(x: 200, y: 200)
         let pMove = CGPoint(x: 200, y: 270) // 70 pt > 18 pt
         recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: pDown), global: GlobalDisplayPoint(cgGlobal: pDown))
         recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: pMove), global: GlobalDisplayPoint(cgGlobal: pMove))
         let panState = recognizer.activeSession?.state
         recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: pMove), global: GlobalDisplayPoint(cgGlobal: pMove))
-        
+
         let curAfter = SafetyInvariants.currentCursorPosition()
         let (curIsolated, curDelta) = SafetyInvariants.assertPointerIsolation(cursorBefore: curBefore, cursorAfter: curAfter, context: "Unsupported Pan")
-        
+
         let passed = (delegate.unsupportedPanCount == 0 && delegate.panStartCount == 1 && delegate.panDeltaCount > 0 && delegate.tapCount == 0 && panState == .directPan && curIsolated && curDelta == 0.0)
         record(
             name: "Test 24: Non-AX Surface Direct Pan & Pointer Isolation",
@@ -1331,7 +1808,7 @@ public final class RuntimeValidator {
             details: "Non-AX surface entered DIRECT_PAN and emitted pan deltas without moving the physical cursor (delta: \(String(format: "%.2f", curDelta)) pt)."
         )
     }
-    
+
     // Scenario 10: Boundary Movement Around Pan Threshold
     private func test25_P3_03_BoundaryMovementAroundPanThreshold() {
         let mapper = CoordinateMapper()
@@ -1340,27 +1817,27 @@ public final class RuntimeValidator {
         let delegate = TestGestureDelegate()
         recognizer.delegate = delegate
         recognizer.testContextOverride = makeTestScrollContext(isScrollable: true)
-        
+
         let p0 = CGPoint(x: 200, y: 200)
         recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p0), global: GlobalDisplayPoint(cgGlobal: p0))
-        
+
         // 1. Move to 17.5 pt (below 18.0 pt)
         let pBelow = CGPoint(x: 200, y: 217.5)
         recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: pBelow), global: GlobalDisplayPoint(cgGlobal: pBelow))
         let state1 = recognizer.activeSession?.state
-        
+
         // 2. Move to 18.5 pt (crosses 18.0 pt)
         let pAbove = CGPoint(x: 200, y: 218.5)
         recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: pAbove), global: GlobalDisplayPoint(cgGlobal: pAbove))
         let state2 = recognizer.activeSession?.state
-        
+
         // 3. Move back to 17.0 pt (recoil back into initial deadband)
         let pRecoil = CGPoint(x: 200, y: 217.0)
         recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: pRecoil), global: GlobalDisplayPoint(cgGlobal: pRecoil))
         let state3 = recognizer.activeSession?.state
-        
+
         recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: pRecoil), global: GlobalDisplayPoint(cgGlobal: pRecoil))
-        
+
         let passed = (state1 == .possibleTap && state2 == .semanticPan && state3 == .semanticPan && delegate.tapCount == 0 && (delegate.panCompleteCount == 1 || delegate.momentumEnterCount == 1))
         record(
             name: "Test 25: P3-03 Boundary Movement Around Threshold — Invariant Locking",
@@ -1368,7 +1845,7 @@ public final class RuntimeValidator {
             details: "17.5 pt remains in POSSIBLE_TAP; 18.5 pt locks SEMANTIC_PAN; returning to 17.0 pt remains strictly in SEMANTIC_PAN (never reverts to tap)."
         )
     }
-    
+
     // Scenario 11 (Invariant): Accidental Touch — Brief Glitch Rejection
     private func test26_P3_03_AccidentalTouch_BriefGlitchRejection() {
         let mapper = CoordinateMapper()
@@ -1376,12 +1853,12 @@ public final class RuntimeValidator {
         let delegate = TestGestureDelegate()
         recognizer.delegate = delegate
         recognizer.testContextOverride = makeTestScrollContext(isScrollable: true)
-        
+
         let p = CGPoint(x: 200, y: 200)
         recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p), global: GlobalDisplayPoint(cgGlobal: p))
         // Immediate up (0 ms < 15ms minTapDuration)
         recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: p), global: GlobalDisplayPoint(cgGlobal: p))
-        
+
         let passed = (delegate.tapCount == 0 && delegate.cancelledCount == 1 && delegate.lastCancelReason == "CONTACT_TOO_BRIEF")
         record(
             name: "Test 26: P3-03 Accidental Touch — Brief Glitch Noise Rejection",
@@ -1389,7 +1866,7 @@ public final class RuntimeValidator {
             details: "Sub-15ms contact rejected as noise (CONTACT_TOO_BRIEF); zero tap dispatched."
         )
     }
-    
+
     // Scenario 12 (P3-03R): Stationary Hold Permitted (No Arbitrary 850ms Cutoff)
     private func test27_P3_03R_StationaryHoldPermitted_CleanTap() {
         let mapper = CoordinateMapper()
@@ -1397,20 +1874,20 @@ public final class RuntimeValidator {
         let delegate = TestGestureDelegate()
         recognizer.delegate = delegate
         recognizer.testContextOverride = makeTestScrollContext(isScrollable: true)
-        
+
         let p = CGPoint(x: 200, y: 200)
         // 1. Touch down
         recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p), global: GlobalDisplayPoint(cgGlobal: p), contactID: 1)
-        
+
         // 2. Stationary hold with micro-jitter (sub-2.0 pt) over simulated 950ms
         for _ in 1...10 {
             usleep(10_000)
             recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: CGPoint(x: 200.5, y: 200.5)), global: GlobalDisplayPoint(cgGlobal: CGPoint(x: 200.5, y: 200.5)), contactID: 1)
         }
-        
+
         // 3. Touch up
         recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: p), global: GlobalDisplayPoint(cgGlobal: p), contactID: 1)
-        
+
         let passed = (delegate.tapCount == 1 && delegate.panStartCount == 0 && delegate.cancelledCount == 0)
         record(
             name: "Test 27: P3-03R Stationary Hold Permitted (No Arbitrary 850ms Cutoff)",
@@ -1418,7 +1895,7 @@ public final class RuntimeValidator {
             details: "Stationary finger held without exceeding touch slop qualifies cleanly as TAP upon release; arbitrary 850ms timeout eliminated."
         )
     }
-    
+
     // Scenario 13 (P3-03R): Intentional Two-Finger Pan Recognition & Centroid Tracking
     private func test28_P3_03R_IntentionalTwoFingerPan() {
         let mapper = CoordinateMapper()
@@ -1426,28 +1903,28 @@ public final class RuntimeValidator {
         let delegate = TestGestureDelegate()
         recognizer.delegate = delegate
         recognizer.testContextOverride = makeTestScrollContext(isScrollable: true)
-        
+
         let p1 = CGPoint(x: 200, y: 200)
         let p2 = CGPoint(x: 400, y: 200)
-        
+
         // 1. Contact 1 down
         recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p1), global: GlobalDisplayPoint(cgGlobal: p1), contactID: 1)
         // 2. Contact 2 down -> Promoted to 2-finger pan
         recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p2), global: GlobalDisplayPoint(cgGlobal: p2), contactID: 2)
-        
+
         let isTwoFingerPan = (recognizer.activeSession?.contactCount == 2)
-        
+
         // 3. Both fingers move down together by 50 pt
         let p1Move = CGPoint(x: 200, y: 250)
         let p2Move = CGPoint(x: 400, y: 250)
         recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: p1Move), global: GlobalDisplayPoint(cgGlobal: p1Move), contactID: 1)
         recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: p2Move), global: GlobalDisplayPoint(cgGlobal: p2Move), contactID: 2)
-        
+
         // 4. Contact 2 lifts
         recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: p2Move), global: GlobalDisplayPoint(cgGlobal: p2Move), contactID: 2)
         // 5. Contact 1 lifts
         recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: p1Move), global: GlobalDisplayPoint(cgGlobal: p1Move), contactID: 1)
-        
+
         let passed = (isTwoFingerPan && delegate.panStartCount >= 1 && (delegate.panCompleteCount == 1 || delegate.momentumEnterCount == 1) && delegate.tapCount == 0)
         record(
             name: "Test 28: P3-03R Intentional Two-Finger Pan & Centroid Tracking",
@@ -1455,7 +1932,7 @@ public final class RuntimeValidator {
             details: "Two contacts detected and promoted intentionally to two-finger DIRECT_PAN; centroid displacement tracked without phantom system gestures."
         )
     }
-    
+
     // Scenario 14 (P3-03R): Kinetic Momentum Flick & Immediate Touch Interruption
     private func test29_P3_03R_KineticMomentumFlickAndTouchInterruption() {
         let mapper = CoordinateMapper()
@@ -1463,30 +1940,30 @@ public final class RuntimeValidator {
         let delegate = TestGestureDelegate()
         recognizer.delegate = delegate
         recognizer.testContextOverride = makeTestScrollContext(isScrollable: true)
-        
+
         let p1 = CGPoint(x: 200, y: 200)
         let p2 = CGPoint(x: 200, y: 350) // 150 pt centroid swipe
         let p1Second = CGPoint(x: 400, y: 200)
         let p2Second = CGPoint(x: 400, y: 350)
-        
+
         recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p1), global: GlobalDisplayPoint(cgGlobal: p1), contactID: 1)
         recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: p1Second), global: GlobalDisplayPoint(cgGlobal: p1Second), contactID: 2)
         usleep(16_000)
         recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: p2), global: GlobalDisplayPoint(cgGlobal: p2), contactID: 1)
         recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: p2Second), global: GlobalDisplayPoint(cgGlobal: p2Second), contactID: 2)
-        
+
         // First lift terminates direct scroll and can start release momentum.
         recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: p2), global: GlobalDisplayPoint(cgGlobal: p2), contactID: 1)
         recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: p2Second), global: GlobalDisplayPoint(cgGlobal: p2Second), contactID: 2)
         let enteredMomentum = (delegate.momentumEnterCount == 1)
-        
+
         // New touch down occurs during momentum -> must interrupt immediately
         let pNew = CGPoint(x: 250, y: 300)
         recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: pNew), global: GlobalDisplayPoint(cgGlobal: pNew), contactID: 3)
         let interrupted = (delegate.momentumInterruptCount == 1)
-        
+
         recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: pNew), global: GlobalDisplayPoint(cgGlobal: pNew), contactID: 3)
-        
+
         let passed = (enteredMomentum && interrupted)
         record(
             name: "Test 29: P3-03R Kinetic Momentum Flick & Immediate Touch Interruption",

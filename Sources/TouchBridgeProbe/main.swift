@@ -20,8 +20,10 @@ func printHelp() {
       --test-arbitration  Launch P3-03 Interaction Router & Gesture Arbitration Testbed Window.
       --test-runtime      Run automated runtime, gesture arbitration, and tap routing validation suite.
       --test-architecture Run deterministic P3-04A architecture and P3-04B pointer transaction checks.
+      --test-physical-matrix Run live physical acceptance matrix across Finder, TextEdit, Safari, and Brave.
       --request-accessibility  Request macOS Accessibility permission for TouchBridgeProbe, then exit.
       --live-diagnostics  Run real-time P3-03R live diagnostic telemetry stream (contacts, speed, backend, seize).
+      --scroll-location-probe <centroid|cursor|pid-centroid|pid-cursor|pid-window>  Diagnostic-only scroll routing probe; pid-window is experimental.
       --tap-backend <mode> Select tap delivery: pointer-primary (default) or semantic-only diagnostic. Legacy values semantic and transient-pointer remain accepted.
       --verify-arbitration Run live physical tap-vs-pan arbitration validation across all scenarios.
       --verify-gating     Run live hardware Enable/Disable gating verification.
@@ -367,6 +369,17 @@ func main() {
         tapBackendMode = parsed
     }
     TouchBridgeRuntime.shared.router.tapBackendMode = tapBackendMode
+    var scrollProbeMode: ScrollLocationProbeMode?
+    if let probeIndex = args.firstIndex(of: "--scroll-location-probe") {
+        guard probeIndex + 1 < args.count, let mode = ScrollLocationProbeMode(rawValue: args[probeIndex + 1]) else {
+            fputs("[ERROR] --scroll-location-probe must be centroid, cursor, pid-centroid, pid-cursor, or pid-window.\n", stderr)
+            exit(2)
+        }
+        scrollProbeMode = mode
+        TouchBridgeRuntime.shared.router.scrollLocationProbeMode = mode
+        LiveDiagnosticsRunner.shared.scrollRoutingProbeEnabled = true
+        print("Scroll location probe: \(mode.rawValue) (production default remains centroid)")
+    }
     print("Tap Backend: \(tapBackendMode.diagnosticName)")
     fflush(stdout)
     
@@ -379,12 +392,17 @@ func main() {
         }
         exit(report.allPassed ? 0 : 1)
     }
+    if args.contains("--test-physical-matrix") {
+        let runner = PhysicalAcceptanceMatrixRunner()
+        let passed = runner.run()
+        exit(passed ? 0 : 1)
+    }
     if testRuntime {
         let report = RuntimeValidator.shared.runAllValidations()
         exit(report.allPassed ? 0 : 1)
     }
     
-    let liveDiagnostics = args.contains("--live-diagnostics") || args.contains("--diagnostics")
+    let liveDiagnostics = args.contains("--live-diagnostics") || args.contains("--diagnostics") || scrollProbeMode != nil
     if args.contains("--request-accessibility") && !liveDiagnostics {
         requestAccessibilityPermissionFromCLI()
         exit(0)

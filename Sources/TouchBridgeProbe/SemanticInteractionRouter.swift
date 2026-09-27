@@ -17,7 +17,7 @@ public extension SemanticInteractionRouterDelegate {
 
 public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
     public weak var delegate: SemanticInteractionRouterDelegate?
-    
+
     /// Explicit user intent gate. If false, ZERO semantic interaction may occur.
     public var userIntent: UserIntent = .disabled
     public var probeOnly: Bool = false
@@ -30,12 +30,27 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
         }
     }
     public lazy var transientPointerBackend = TransientPointerTapBackend()
-    public var preferContinuousCGScroll: Bool = true
+    public var scrollCoordinator = HybridScrollDeliveryCoordinator.shared
+    public private(set) var activeScrollBackend: ScrollDeliveryBackend? = nil
+    public var preferContinuousCGScroll: Bool = false {
+        didSet {
+            scrollCoordinator.forceFallback = preferContinuousCGScroll
+        }
+    }
+    /// Diagnostic A/B mode for determining whether the posted event location is
+    /// coupled to the physical cursor. The default preserves product behavior.
+    public var scrollLocationProbeMode: ScrollLocationProbeMode = .centroid
+    private var diagnosticScrollCursorLocation: CGPoint?
+    private var diagnosticScrollTargetPID: pid_t?
+    private var diagnosticScrollTargetWindowID: Int?
+    private var diagnosticAXWindowElement: AXUIElement?
+    public var scrollRoutingProbe: ScrollRoutingProbe?
+    private var lastScrollLocationProbeLog: [String: Date] = [:]
     /// Compatibility escape hatch. CG click events move the real system cursor on some hosts.
     public var allowCursorMovingCGFallback: Bool = false
     /// Unsafe experimental cursor restoration prototype; never enabled by the product path.
     public var enableCGCursorRestoreExperiment: Bool = false
-    
+
     // Kinetic momentum state (P3-03R Phase C)
     private var momentumTimer: Timer? = nil
     private var activeMomentumSession: InteractionSession? = nil
@@ -46,7 +61,7 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
     private var lastDirectPanVelocityY: Double = 0
     private var loggedDirectScrollFields = false
     private var loggedMomentumFields = false
-    
+
     public init() {}
 
     /// Delivery policy boundary between recognized intent and OS mechanisms.
@@ -77,14 +92,14 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
         guard tapBackendMode == .transientPointer else { return }
         transientPointerBackend.prepareForTransactions()
     }
-    
+
     deinit {
         haltMomentum()
         haltFingerDownSmoothing()
     }
-    
+
     // MARK: - TouchGestureRecognizerDelegate
-    
+
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didResolveTapWithSession session: InteractionSession) {
         session.interactionIntent = "TAP"
         session.deliveryPolicy = tapBackendMode.diagnosticName
@@ -128,7 +143,7 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
                 session.applyAXEnrichment(AXCapabilityInspector.shared.discoverContext(element: element))
             }
         }
-        
+
         guard AXPermissionManager.shared.isTrusted() else {
             logTapNotResolved(point: session.startGlobalPoint.cgGlobal, rawRole: session.context?.hitNode.role ?? "None")
             TouchBridgeLogger.warning(.semantic, "Tap rejected: Accessibility permission UNAVAILABLE.")
@@ -139,46 +154,43 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
             delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
             return
         }
-        
+
         if probeOnly {
             logTapNotResolved(point: session.startGlobalPoint.cgGlobal, rawRole: session.context?.hitNode.role ?? "None")
             probeElement(at: session.startGlobalPoint.cgGlobal)
             TouchBridgeLogger.info(.semantic, "TAP ROUTE: PROBE_ONLY -> INSPECTED_NO_ACTION")
             return
         }
-        
+
         executeCapabilityAuthorizedTap(session: session)
     }
-    
+
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didStartPanWithSession session: InteractionSession) {
         haltMomentum()
         haltFingerDownSmoothing()
         lastDirectPanVelocityY = 0
         loggedDirectScrollFields = false
-        
+
         guard userIntent == .enabled else {
             TouchBridgeLogger.info(.semantic, "Pan gesture observed, but interaction is SUPPRESSED (UserIntent is DISABLED).")
             return
         }
-        
+
+        // Resolve backend once at pan start and latch for gesture lifetime
+        let point = session.startGlobalPoint.cgGlobal
+        let backend = scrollCoordinator.resolveBackend(for: session, at: point)
+        self.activeScrollBackend = backend
+        session.scrollDeliveryBackend = backend
+        _ = backend.begin(session: session, touchPoint: point)
+
         let appName = session.context?.applicationName ?? "Application"
-        if usesCGScroll(for: session) {
-            session.panActionResult = "DIRECT_PAN -> CG_SCROLL_WHEEL (public continuous pixel events)"
-        } else {
-            session.panActionResult = "DIRECT_PAN -> AX_SCROLL_VALUE"
-        }
         TouchBridgeLogger.info(
             .semantic,
-            "Direct Pan STARTED on [\(appName)] (Contacts: \(session.contactCount))"
+            "Direct Pan STARTED on [\(appName)] [Backend: \(backend.diagnosticName)] (Contacts: \(session.contactCount))"
         )
-        
-        if usesCGScroll(for: session) {
-            postScrollWheelEvent(location: session.startGlobalPoint.cgGlobal, deltaY: 0, phase: 1, momentumPhase: 0)
-        }
-        
         delegate?.semanticRouter(self, didUpdateFeedback: "Pan Started [\(appName)]", invariantPassed: true)
     }
-    
+
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didUpdatePanDeltaWithSession session: InteractionSession, deltaPixels: CGVector) {
         guard userIntent == .enabled else { return }
 
@@ -190,119 +202,79 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
             lastDirectPanVelocityY = 0
             startFingerDownSmoothing(session: session)
         }
-        
-        if usesCGScroll(for: session) {
-            postScrollWheelEvent(location: session.latestGlobalPoint.cgGlobal, deltaY: deltaPixels.dy, phase: 2, momentumPhase: 0)
-        }
+
+        activeScrollBackend?.update(
+            deltaY: deltaPixels.dy,
+            velocityY: session.filteredVelocity.dy,
+            currentTouchPoint: session.latestGlobalPoint.cgGlobal
+        )
     }
-    
+
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didUpdatePanWithSession session: InteractionSession, targetValue: Double) {
-        guard userIntent == .enabled else { return }
-        guard !usesCGScroll(for: session), let bar = session.context?.scrollBarElement else { return }
-        
-        let scheduledAt = Date()
-        let cursorBefore = SafetyInvariants.currentCursorPosition()
-        let err = AXUIElementSetAttributeValue(bar, kAXValueAttribute as CFString, targetValue as CFTypeRef)
-        let executedAt = Date()
-        let cursorAfter = SafetyInvariants.currentCursorPosition()
-        
-        var readbackVal: Double? = nil
-        var rRef: AnyObject?
-        if AXUIElementCopyAttributeValue(bar, kAXValueAttribute as CFString, &rRef) == .success, let r = rRef {
-            if let n = r as? NSNumber { readbackVal = n.doubleValue }
-            else if let d = Double(String(describing: r)) { readbackVal = d }
-        }
-        
-        session.trace?.recordAXWrite(
-            phase: "pan-update",
-            fingerY: session.latestGlobalPoint.cgGlobal.y,
-            scheduledAt: scheduledAt,
-            executedAt: executedAt,
-            requestedValue: targetValue,
-            error: err,
-            immediateReadback: readbackVal
-        )
-        
-        let (satisfied, _) = SafetyInvariants.assertPointerIsolation(
-            cursorBefore: cursorBefore,
-            cursorAfter: cursorAfter,
-            context: "Semantic Pan Update"
-        )
-        
-        if err == .success {
-            session.recordAXWriteDispatched(now: Date(), value: targetValue)
-            session.cursorAfter = cursorAfter
-            TouchBridgeLogger.debug(.semantic, "Pan Value Updated -> \(String(format: "%.3f", targetValue)) (Cursor Isolated: \(satisfied ? "YES" : "NO"))")
-        } else {
-            TouchBridgeLogger.warning(.semantic, "AXUIElementSetAttributeValue failed on scrollbar: \(err.rawValue)")
-        }
+        // Obsolete P3-02 direct write hook. The production hybrid backend in didUpdatePanDeltaWithSession
+        // owns the normalized mapping and write dispatching.
     }
-    
+
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didCompletePanWithSession session: InteractionSession) {
         guard userIntent == .enabled else { return }
         haltMomentum()
         haltFingerDownSmoothing()
-        
-        if usesCGScroll(for: session) {
-            postScrollWheelEvent(location: session.latestGlobalPoint.cgGlobal, deltaY: 0, phase: 4, momentumPhase: 0)
-        }
-        
+
+        activeScrollBackend?.end(session: session)
+        activeScrollBackend = nil
+
         let cursorBefore = SafetyInvariants.currentCursorPosition()
         let cursorAfter = SafetyInvariants.currentCursorPosition()
         SafetyInvariants.assertPointerIsolation(cursorBefore: cursorBefore, cursorAfter: cursorAfter, context: "Pan Complete")
-        
+
         session.cursorBefore = cursorBefore
         session.cursorAfter = cursorAfter
-        
+
         let totalDeltaY = session.latestGlobalPoint.cgGlobal.y - session.startGlobalPoint.cgGlobal.y
         let appName = session.context?.applicationName ?? "Application"
         let summary = "PAN_COMPLETED on [\(appName)]: Updates=\(session.panUpdatesCount) | DeltaY=\(String(format: "%.1f", totalDeltaY)) pt"
-        session.panActionResult = summary
-        
+
         TouchBridgeLogger.info(.semantic, summary)
         delegate?.semanticRouter(self, didUpdateFeedback: summary, invariantPassed: true)
         delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
     }
-    
+
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didEnterMomentumWithSession session: InteractionSession, initialVelocity: CGVector) {
         guard userIntent == .enabled else { return }
         haltMomentum()
         haltFingerDownSmoothing()
-        
-        // 1. Terminate the touch phase
-        postScrollWheelEvent(location: session.latestGlobalPoint.cgGlobal, deltaY: 0, phase: 4, momentumPhase: 0)
-        
-        // 2. Start kinetic momentum
+
         self.activeMomentumSession = session
         self.momentumRecognizer = recognizer
         self.currentMomentumVelocity = initialVelocity
         loggedMomentumFields = false
-        
+
         let dt: Double = 0.016
         let initialStep = initialVelocity.dy * dt
-        postScrollWheelEvent(location: session.latestGlobalPoint.cgGlobal, deltaY: initialStep, phase: 0, momentumPhase: 1)
-        
+        activeScrollBackend?.momentumUpdate(deltaY: initialStep, velocityY: initialVelocity.dy)
+
         let initialSpeed = hypot(initialVelocity.dx, initialVelocity.dy)
         TouchBridgeLogger.info(
             .semantic,
             "Kinetic Momentum Started: speed=\(String(format: "%.1f", initialSpeed)) pt/s, initialStep=\(String(format: "%.2f", initialStep)) px"
         )
-        
+
         self.momentumTimer = Timer.scheduledTimer(withTimeInterval: dt, repeats: true) { [weak self] timer in
             guard let self = self, let active = self.activeMomentumSession else {
                 timer.invalidate()
                 return
             }
-            
+
             self.currentMomentumVelocity.dy *= GestureArbitrationConfig.momentumDecayFactor
             let speed = abs(self.currentMomentumVelocity.dy)
             let step = self.currentMomentumVelocity.dy * dt
-            
+
             if speed < GestureArbitrationConfig.minMomentumVelocityPtPerSec {
                 // Natural momentum termination
                 timer.invalidate()
                 self.momentumTimer = nil
-                self.postScrollWheelEvent(location: active.latestGlobalPoint.cgGlobal, deltaY: 0, phase: 0, momentumPhase: 4)
+                self.activeScrollBackend?.end(session: active)
+                self.activeScrollBackend = nil
                 active.markMomentumEnded()
                 TouchBridgeLogger.info(.semantic, "Kinetic momentum settled naturally.")
                 self.delegate?.semanticRouter(self, didCompleteSession: active, evidenceBlock: active.formattedEvidenceBlock())
@@ -311,23 +283,24 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
                 self.momentumRecognizer = nil
             } else {
                 // Continuous kinetic momentum step
-                self.postScrollWheelEvent(location: active.latestGlobalPoint.cgGlobal, deltaY: step, phase: 0, momentumPhase: 2)
+                self.activeScrollBackend?.momentumUpdate(deltaY: step, velocityY: self.currentMomentumVelocity.dy)
             }
         }
     }
-    
+
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didInterruptMomentumWithSession session: InteractionSession) {
         haltFingerDownSmoothing()
         if let active = activeMomentumSession {
             haltMomentum()
-            postScrollWheelEvent(location: active.latestGlobalPoint.cgGlobal, deltaY: 0, phase: 0, momentumPhase: 4)
+            activeScrollBackend?.end(session: active)
+            activeScrollBackend = nil
             active.markMomentumEnded()
             TouchBridgeLogger.info(.semantic, "Kinetic momentum INTERRUPTED immediately by new touch contact.")
             self.activeMomentumSession = nil
             self.momentumRecognizer = nil
         }
     }
-    
+
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didMarkUnsupportedPan session: InteractionSession) {
         guard userIntent == .enabled else { return }
         let appName = session.context?.applicationName ?? "Application"
@@ -340,19 +313,21 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
         )
         delegate?.semanticRouter(self, didUpdateFeedback: "Unsupported Pan [\(appName)]", invariantPassed: true)
     }
-    
+
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didCancelSession session: InteractionSession, reason: String) {
         haltMomentum()
+        activeScrollBackend?.cancel(session: session, reason: reason)
+        activeScrollBackend = nil
         session.cursorAfter = SafetyInvariants.currentCursorPosition()
         TouchBridgeLogger.debug(.gesture, "Gesture session cancelled: \(reason) (Mov: \(String(format: "%.1f", session.maxMovementPt)) pt)")
-        
+
         if reason == "UNSUPPORTED_PAN_RELEASE" || reason == "MOVEMENT_TOLERANCE_EXCEEDED" || reason == "CONTACT_TOO_BRIEF" {
             delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
         }
     }
-    
+
     // MARK: - Capability-Authorized Tap Execution (P3-02 & P3-03R Phase B)
-    
+
     private func executeCapabilityAuthorizedTap(session: InteractionSession) {
         if session.state != .tapExecuted {
             session.recordDelayedTapViolation()
@@ -644,8 +619,17 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
             wheel2: 0,
             wheel3: 0
         ) else { return }
-        
-        event.location = location
+
+        let eventLocation: CGPoint
+        switch scrollLocationProbeMode {
+        case .centroid, .pidCentroid:
+            eventLocation = location
+        case .preservePhysicalCursor, .pidCursor:
+            eventLocation = diagnosticScrollCursorLocation ?? SafetyInvariants.currentCursorPosition()
+        case .pidWindow:
+            eventLocation = location
+        }
+        event.location = eventLocation
         event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
         event.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
         event.setIntegerValueField(.scrollWheelEventMomentumPhase, value: momentumPhase)
@@ -656,7 +640,83 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
             if momentumPhase == 1 { loggedMomentumFields = true } else { loggedDirectScrollFields = true }
             TouchBridgeLogger.info(.semantic, "CG_SCROLL_WHEEL fields: units=pixel continuous=1 scrollPhase=\(phase) momentumPhase=\(momentumPhase) wheelDeltaY=\(Int32(round(deltaY))) fixedPixelDeltaY=\(String(format: "%.3f", deltaY)) pointPixelDeltaY=\(String(format: "%.3f", deltaY))")
         }
-        event.post(tap: .cghidEventTap)
+        if scrollLocationProbeMode != .centroid {
+            let logKey = "\(phase):\(momentumPhase)"
+            let now = Date()
+            if lastScrollLocationProbeLog[logKey].map({ now.timeIntervalSince($0) >= 0.5 }) ?? true {
+                lastScrollLocationProbeLog[logKey] = now
+                let route = (scrollLocationProbeMode == .pidCentroid || scrollLocationProbeMode == .pidCursor || scrollLocationProbeMode == .pidWindow)
+                    ? "PID=\(diagnosticScrollTargetPID.map(String.init) ?? "UNRESOLVED") window=\(diagnosticScrollTargetWindowID.map(String.init) ?? "UNRESOLVED")"
+                    : "CGHID"
+                TouchBridgeLogger.info(.semantic, "SCROLL_LOCATION_PROBE mode=\(scrollLocationProbeMode.rawValue) route=\(route) touch=(\(String(format: "%.1f", location.x)),\(String(format: "%.1f", location.y))) event=(\(String(format: "%.1f", eventLocation.x)),\(String(format: "%.1f", eventLocation.y))) phase=\(phase) momentum=\(momentumPhase)")
+            }
+        }
+        if scrollLocationProbeMode == .pidWindow {
+            guard let pid = diagnosticScrollTargetPID, diagnosticScrollTargetWindowID != nil else {
+                TouchBridgeLogger.warning(.semantic, "WINDOW_SCROLL_SUPPRESSED: AX target PID/window did not correlate uniquely; no event was posted.")
+                return
+            }
+            guard let metadata = scrollRoutingProbe?.attachExperimentallyJustifiedWindowFields(to: event, targetWindowID: diagnosticScrollTargetWindowID) else {
+                TouchBridgeLogger.warning(.semantic, "WINDOW_SCROLL_SUPPRESSED: no physical scroll field was correlated to a WindowServer ID; Diagnostic E metadata is unjustified.")
+                return
+            }
+            TouchBridgeLogger.info(.semantic, "WINDOW_SCROLL_METADATA \(metadata)")
+            event.postToPid(pid)
+        } else if scrollLocationProbeMode == .pidCentroid || scrollLocationProbeMode == .pidCursor {
+            guard let pid = diagnosticScrollTargetPID else {
+                TouchBridgeLogger.warning(.semantic, "PID_SCROLL_SUPPRESSED: AX hit-test did not resolve a target PID; no CGHID fallback was posted.")
+                return
+            }
+            event.postToPid(pid)
+        } else {
+            event.post(tap: .cghidEventTap)
+        }
+    }
+
+    private func resolveDiagnosticScrollTarget(session: InteractionSession) -> (pid: pid_t?, windowID: Int?, axWindow: AXUIElement?) {
+        guard AXPermissionManager.shared.isTrusted() else {
+            TouchBridgeLogger.warning(.semantic, "AX_TARGET_PROBE coordinate=unavailable result=AX_PERMISSION_UNAVAILABLE")
+            return (nil, nil, nil)
+        }
+        let point = session.latestGlobalPoint.cgGlobal
+        let (element, snapshot, error) = AXSemanticEngine.shared.probeElementAt(globalCG: point, includeWindow: true)
+        guard error == .success, let element, let snapshot else {
+            TouchBridgeLogger.warning(.semantic, "AX_TARGET_RESOLUTION_FAILURE coordinate=cg-global point=(\(String(format: "%.1f", point.x)),\(String(format: "%.1f", point.y))) error=\(error.rawValue)")
+            return (nil, nil, nil)
+        }
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(element, &pid) == .success, pid > 0 else {
+            TouchBridgeLogger.warning(.semantic, "AX_TARGET_RESOLUTION_FAILURE coordinate=cg-global result=PID_UNAVAILABLE role=\(snapshot.role) subrole=\(snapshot.subrole ?? "nil")")
+            return (nil, nil, nil)
+        }
+        var windowRef: CFTypeRef?
+        let windowError = AXUIElementCopyAttributeValue(element, kAXWindowAttribute as CFString, &windowRef)
+        let axWindow: AXUIElement?
+        if windowError == .success, let windowRef, CFGetTypeID(windowRef) == AXUIElementGetTypeID() {
+            axWindow = unsafeBitCast(windowRef, to: AXUIElement.self)
+        } else {
+            axWindow = nil
+        }
+        let window = scrollRoutingProbe?.correlateAXWindow(pid: pid, window: snapshot.window)
+        TouchBridgeLogger.info(.semantic, "AX_TARGET_LATCH coordinate=cg-global pid=\(pid) app=\(snapshot.applicationName) elementRole=\(snapshot.role) elementSubrole=\(snapshot.subrole ?? "nil") elementTitle=\(snapshot.title ?? "nil") AXWindowRole=\(snapshot.window?.role ?? "nil") AXWindowSubrole=\(snapshot.window?.subrole ?? "nil") AXWindowTitle=\(snapshot.window?.title ?? "nil") AXWindowPosition=\(snapshot.window?.position.map(String.init(describing:)) ?? "nil") AXWindowSize=\(snapshot.window?.size.map(String.init(describing:)) ?? "nil") main=\(snapshot.window?.isMain.map(String.init(describing:)) ?? "nil") focused=\(snapshot.window?.isFocused.map(String.init(describing:)) ?? "nil") CGCorrelation=\(window?.status ?? "UNAVAILABLE") CGWindowID=\(window?.windowID.map(String.init) ?? "nil") candidates=\(window?.candidates.joined(separator: "|") ?? "nil")")
+        return (pid, window?.windowID, axWindow)
+    }
+
+    private func clearDiagnosticScrollTarget() {
+        if let axWindow = diagnosticAXWindowElement {
+            func value(_ attribute: String) -> String {
+                var raw: CFTypeRef?
+                guard AXUIElementCopyAttributeValue(axWindow, attribute as CFString, &raw) == .success,
+                      let raw else { return "unavailable" }
+                if let bool = raw as? Bool { return String(bool) }
+                return String(describing: raw)
+            }
+            TouchBridgeLogger.info(.semantic, "AX_TARGET_LATCH_END windowID=\(diagnosticScrollTargetWindowID.map(String.init) ?? "nil") title=\(value(kAXTitleAttribute)) main=\(value(kAXMainAttribute)) focused=\(value(kAXFocusedAttribute)) frontmostPID=\(NSWorkspace.shared.frontmostApplication?.processIdentifier.description ?? "unknown")")
+        }
+        diagnosticScrollTargetPID = nil
+        diagnosticScrollTargetWindowID = nil
+        diagnosticAXWindowElement = nil
+        diagnosticScrollCursorLocation = nil
     }
 
     private func startFingerDownSmoothing(session: InteractionSession) {
@@ -673,9 +733,7 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
                 return
             }
             self.fingerDownSmoothingTail = tail
-            if self.usesCGScroll(for: session) {
-                self.postScrollWheelEvent(location: session.latestGlobalPoint.cgGlobal, deltaY: delta, phase: 2, momentumPhase: 0)
-            }
+            self.activeScrollBackend?.update(deltaY: delta, velocityY: 0, currentTouchPoint: session.latestGlobalPoint.cgGlobal)
         }
     }
 
@@ -685,17 +743,13 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
         fingerDownSmoothingTail = nil
     }
 
-    private func usesCGScroll(for session: InteractionSession) -> Bool {
-        session.contactCount >= 2 || preferContinuousCGScroll || session.context?.scrollBarElement == nil
-    }
-    
     private func haltMomentum() {
         if let timer = momentumTimer {
             timer.invalidate()
             momentumTimer = nil
         }
     }
-    
+
     private func probeElement(at globalCG: CGPoint) {
         TouchBridgeLogger.info(.semantic, "Probe-only hit-test at Global (\(String(format: "%.1f, %.1f", globalCG.x, globalCG.y)))")
         let (elemOpt, _, err) = AXSemanticEngine.shared.probeElementAt(globalCG: globalCG)

@@ -72,6 +72,7 @@ public protocol PointerTransactionOperating {
     func markedMouseUpAcknowledgementToken() -> UInt64?
     func waitForMarkedMouseUp(after token: UInt64, timeout: TimeInterval) -> PointerMouseUpAcknowledgement
     func post(_ event: PointerMouseEvent)
+    func postScrollWheel(at point: CGPoint, deltaY: Double, phase: UInt32, momentumPhase: UInt32)
 }
 
 public extension PointerTransactionOperating {
@@ -82,6 +83,22 @@ public extension PointerTransactionOperating {
     }
     func markedMouseUpAcknowledgementToken() -> UInt64? { canObservePhysicalMouse ? physicalMouseGeneration : nil }
     func waitForMarkedMouseUp(after token: UInt64, timeout: TimeInterval) -> PointerMouseUpAcknowledgement { .unavailable }
+    func postScrollWheel(at point: CGPoint, deltaY: Double, phase: UInt32, momentumPhase: UInt32) {
+        let pixels = deltaY * 1.5
+        guard let event = CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .pixel,
+            wheelCount: 1,
+            wheel1: Int32(round(pixels)),
+            wheel2: 0,
+            wheel3: 0
+        ) else { return }
+        event.location = point
+        event.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(phase))
+        event.setIntegerValueField(.scrollWheelEventMomentumPhase, value: Int64(momentumPhase))
+        event.setIntegerValueField(.eventSourceUserData, value: 0x54425054584E)
+        event.post(tap: .cghidEventTap)
+    }
 }
 
 public enum PointerRestoreDecision: Equatable {
