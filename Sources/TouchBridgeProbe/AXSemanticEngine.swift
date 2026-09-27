@@ -23,6 +23,17 @@ public struct AXElementSnapshot: Codable {
     public let isFocused: Bool?
     public let supportedActions: [String]
     public let elementFrame: [Double]?
+    public let window: AXWindowSnapshot?
+}
+
+public struct AXWindowSnapshot: Codable {
+    public let role: String?
+    public let subrole: String?
+    public let title: String?
+    public let position: [Double]?
+    public let size: [Double]?
+    public let isMain: Bool?
+    public let isFocused: Bool?
 }
 
 public struct SemanticEvidenceRecord: Codable {
@@ -138,7 +149,7 @@ public final class AXSemanticEngine {
     
     /// Phase 2: Probe-only hit test at CoreGraphics Global coordinates.
     /// Does NOT perform any action.
-    public func probeElementAt(globalCG: CGPoint) -> (element: AXUIElement?, snapshot: AXElementSnapshot?, error: AXError) {
+    public func probeElementAt(globalCG: CGPoint, includeWindow: Bool = false) -> (element: AXUIElement?, snapshot: AXElementSnapshot?, error: AXError) {
         guard AXPermissionManager.shared.isTrusted() else {
             return (nil, nil, .apiDisabled)
         }
@@ -155,7 +166,7 @@ public final class AXSemanticEngine {
             return (nil, nil, err)
         }
         
-        let snapshot = inspectElement(elem)
+        let snapshot = inspectElement(elem, includeWindow: includeWindow)
         return (elem, snapshot, err)
     }
     
@@ -336,7 +347,7 @@ public final class AXSemanticEngine {
         )
     }
     
-    public func inspectElement(_ element: AXUIElement) -> AXElementSnapshot {
+    public func inspectElement(_ element: AXUIElement, includeWindow: Bool = false) -> AXElementSnapshot {
         var pid: pid_t = 0
         AXUIElementGetPid(element, &pid)
         let appName = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "PID \(pid)"
@@ -380,6 +391,15 @@ public final class AXSemanticEngine {
             frameArray = [p.x, p.y, s.width, s.height]
         }
         
+        let window: AXWindowSnapshot?
+        if includeWindow,
+           let rawWindow = copyElementAttribute(element, kAXWindowAttribute as CFString),
+           CFGetTypeID(rawWindow) == AXUIElementGetTypeID() {
+            window = inspectWindow(rawWindow as! AXUIElement)
+        } else {
+            window = nil
+        }
+
         return AXElementSnapshot(
             pid: pid,
             applicationName: appName,
@@ -391,8 +411,46 @@ public final class AXSemanticEngine {
             isEnabled: isEnabled,
             isFocused: isFocused,
             supportedActions: actions,
-            elementFrame: frameArray
+            elementFrame: frameArray,
+            window: window
         )
+    }
+
+    private func inspectWindow(_ element: AXUIElement) -> AXWindowSnapshot {
+        func pointAttribute(_ name: String) -> [Double]? {
+            guard let raw = copyElementAttribute(element, name as CFString),
+                  CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
+            let value = raw as! AXValue
+            var point = CGPoint.zero
+            guard AXValueGetValue(value, .cgPoint, &point) else { return nil }
+            return [point.x, point.y]
+        }
+        func sizeAttribute(_ name: String) -> [Double]? {
+            guard let raw = copyElementAttribute(element, name as CFString),
+                  CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
+            let value = raw as! AXValue
+            var size = CGSize.zero
+            guard AXValueGetValue(value, .cgSize, &size) else { return nil }
+            return [size.width, size.height]
+        }
+        func boolAttribute(_ name: String) -> Bool? {
+            copyElementAttribute(element, name as CFString) as? Bool
+        }
+        return AXWindowSnapshot(
+            role: getAttributeString(element, kAXRoleAttribute),
+            subrole: getAttributeString(element, kAXSubroleAttribute),
+            title: getAttributeString(element, kAXTitleAttribute),
+            position: pointAttribute(kAXPositionAttribute),
+            size: sizeAttribute(kAXSizeAttribute),
+            isMain: boolAttribute(kAXMainAttribute),
+            isFocused: boolAttribute(kAXFocusedAttribute)
+        )
+    }
+
+    private func copyElementAttribute(_ element: AXUIElement, _ attribute: CFString) -> AnyObject? {
+        var value: AnyObject?
+        guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success else { return nil }
+        return value
     }
     
     private func getAttributeString(_ element: AXUIElement, _ attribute: String) -> String? {

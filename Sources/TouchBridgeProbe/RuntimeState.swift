@@ -21,7 +21,8 @@ public enum UserIntent: String, Equatable, CustomStringConvertible {
     }
 }
 
-/// Represents the underlying capability of the hardware, display, calibration, and OS permissions.
+/// Represents core input, display, and calibration readiness. AX enrichment is
+/// reported separately by AccessibilityState and does not gate pointer delivery.
 public enum RuntimeCapability: Equatable, CustomStringConvertible {
     case unavailable(reason: String)
     case suspended(reason: String)
@@ -143,7 +144,7 @@ public enum CalibrationState: Equatable, CustomStringConvertible {
     }
 }
 
-/// Represents the overall operational state of the TouchBridge semantic touch engine.
+/// Represents the overall operational state of the TouchBridge input and gesture runtime.
 /// When user intent is Disabled, EngineState is strictly .disabled.
 public enum EngineState: Equatable, CustomStringConvertible {
     case disabled

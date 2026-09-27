@@ -41,7 +41,6 @@ public final class SemanticFocusController {
         let cursorBefore = NSEvent.mouseLocation
         
         var focusErrCode: Int32? = nil
-        var pressDispatched = false
         // 1. If targeting another application, activate it so physical keyboard input routes to it
         if let targetApp = NSRunningApplication(processIdentifier: pid) {
             targetApp.activate()
@@ -53,15 +52,8 @@ public final class SemanticFocusController {
             focusErrCode = err.rawValue
         }
         
-        // 2. If element supports AXPress (standard for web inputs / native controls), dispatch it
-        if node.supportedActions.contains(kAXPressAction as String) {
-            let err = AXUIElementPerformAction(element, kAXPressAction as CFString)
-            if err == .success {
-                pressDispatched = true
-            }
-        }
-        
-        // 3. Inspect focus state after attempt
+        // 3. Inspect focus state after the focus mutation. Press is a separate
+        // tap backend and must not be dispatched as a side effect of focusing.
         var isFocusedAfter = false
         var focusedRef: AnyObject?
         if AXUIElementCopyAttributeValue(element, kAXFocusedAttribute as CFString, &focusedRef) == .success,
@@ -79,9 +71,7 @@ public final class SemanticFocusController {
         let classification: String
         if isFocusedAfter {
             classification = "SEMANTIC_SUCCESS"
-        } else if node.isFocusSettable && focusErrCode == 0 {
-            classification = "SEMANTIC_SUCCESS"
-        } else if !node.isFocusSettable && !pressDispatched {
+        } else if !node.isFocusSettable {
             classification = "ATTRIBUTE_NOT_SETTABLE"
         } else {
             classification = "ACTION_FAILED"
@@ -95,7 +85,7 @@ public final class SemanticFocusController {
             elementTitle: node.title,
             wasFocusSettable: node.isFocusSettable,
             focusAttributeMutationResult: focusErrCode,
-            pressActionDispatched: pressDispatched,
+            pressActionDispatched: false,
             isFocusedAfter: isFocusedAfter,
             appBefore: appBefore,
             appAfter: appAfter,
@@ -110,8 +100,9 @@ public final class SemanticFocusController {
         print("TEXT FOCUS INTERACTION EVIDENCE RECORD [\(record.id)]")
         print("  App: \(record.targetApplication) (Before: \(record.appBefore) -> After: \(record.appAfter))")
         print("  Role: \(record.elementRole) [\(record.elementTitle ?? "")]")
-        print("  Focus Settable: \(record.wasFocusSettable) | Press Dispatched: \(record.pressActionDispatched)")
+        print("  Focus Settable: \(record.wasFocusSettable) | Press Dispatched: NO (focus is isolated from AXPress)")
         print("  Focused Result: \(record.isFocusedAfter ? "FOCUSED [YES]" : "UNFOCUSED [NO]")")
+        print("  Focus Classification: \(record.classification) (setter result: \(record.focusAttributeMutationResult.map(String.init) ?? "not attempted"))")
         print("  Cursor Delta: \(String(format: "%.2f", record.cursorDelta)) pt (Invariant: \(delta < 0.001 ? "PASS" : "FAIL"))")
         print("================================================================================\n")
         

@@ -18,8 +18,13 @@ func printHelp() {
       --inspect-only      Enumerate HID and Display interfaces, print full technical metadata, then exit.
       --test-timestamps   Empirically validate real HID frame timestamps across gestures (P1.5 requirement 1).
       --test-arbitration  Launch P3-03 Interaction Router & Gesture Arbitration Testbed Window.
-      --test-runtime      Run automated 29-test runtime and gesture arbitration validation suite.
+      --test-runtime      Run automated runtime, gesture arbitration, and tap routing validation suite.
+      --test-architecture Run deterministic P3-04A architecture and P3-04B pointer transaction checks.
+      --test-physical-matrix Run live physical acceptance matrix across Finder, TextEdit, Safari, and Brave.
+      --request-accessibility  Request macOS Accessibility permission for TouchBridgeProbe, then exit.
       --live-diagnostics  Run real-time P3-03R live diagnostic telemetry stream (contacts, speed, backend, seize).
+      --scroll-location-probe <centroid|cursor|pid-centroid|pid-cursor|pid-window>  Diagnostic-only scroll routing probe; pid-window is experimental.
+      --tap-backend <mode> Select tap delivery: pointer-primary (default) or semantic-only diagnostic. Legacy values semantic and transient-pointer remain accepted.
       --verify-arbitration Run live physical tap-vs-pan arbitration validation across all scenarios.
       --verify-gating     Run live hardware Enable/Disable gating verification.
       --verify-hotplug    Run live hardware USB hot-plug disconnect/reconnect verification.
@@ -32,6 +37,23 @@ func printHelp() {
     General Options:
       --help, -h          Show this help message.
     """)
+}
+
+func requestAccessibilityPermissionFromCLI() {
+    let permissionManager = AXPermissionManager.shared
+    let trustedBeforeRequest = permissionManager.isTrusted()
+    print("Accessibility permission before request: \(trustedBeforeRequest ? "TRUSTED" : "UNTRUSTED")")
+
+    _ = permissionManager.checkPermission(requestPromptIfNeeded: true)
+    let trustedAfterRequest = permissionManager.isTrusted()
+    print("Accessibility permission request issued: \(permissionManager.promptRequestIssuedByLastCheck ? "YES" : "NO (already requested during this process)")")
+    print("Accessibility permission after request: \(trustedAfterRequest ? "TRUSTED" : "UNTRUSTED")")
+    print("macOS permission UI may appear asynchronously.")
+    print("Enable TouchBridgeProbe in System Settings → Privacy & Security → Accessibility.")
+    if !trustedAfterRequest {
+        print("Permission is not yet granted; relaunch TouchBridgeProbe after enabling it.")
+    }
+    fflush(stdout)
 }
 
 func runCLIMonitor(display: DisplayMetadata, targetDevice: DeviceMetadata, duration: Double?) {
@@ -337,20 +359,49 @@ func main() {
         printHelp()
         exit(0)
     }
+
+    var tapBackendMode: TapBackendMode = .transientPointer
+    if let backendIndex = args.firstIndex(of: "--tap-backend") {
+        guard backendIndex + 1 < args.count, let parsed = TapBackendMode.parseCLI(args[backendIndex + 1]) else {
+            fputs("[ERROR] --tap-backend must be pointer-primary, semantic-only, semantic, or transient-pointer.\n", stderr)
+            exit(2)
+        }
+        tapBackendMode = parsed
+    }
+    TouchBridgeRuntime.shared.router.tapBackendMode = tapBackendMode
+    print("Tap Backend: \(tapBackendMode.diagnosticName)")
+    fflush(stdout)
     
     let testRuntime = args.contains("--test-runtime")
+    if args.contains("--test-architecture") {
+        let report = RuntimeValidator.shared.runArchitectureValidations()
+        print("\(report.suiteName): \(report.passedTests)/\(report.totalTests) passed, \(report.failedTests) failed")
+        for result in report.testResults {
+            print("\(result.passed ? "[PASS]" : "[FAIL]") \(result.name): \(result.details)")
+        }
+        exit(report.allPassed ? 0 : 1)
+    }
+    if args.contains("--test-physical-matrix") {
+        let runner = PhysicalAcceptanceMatrixRunner()
+        let passed = runner.run()
+        exit(passed ? 0 : 1)
+    }
     if testRuntime {
         let report = RuntimeValidator.shared.runAllValidations()
         exit(report.allPassed ? 0 : 1)
     }
     
     let liveDiagnostics = args.contains("--live-diagnostics") || args.contains("--diagnostics")
+    if args.contains("--request-accessibility") && !liveDiagnostics {
+        requestAccessibilityPermissionFromCLI()
+        exit(0)
+    }
     if liveDiagnostics {
         var dur: Double? = nil
         if let dIdx = args.firstIndex(of: "--duration"), dIdx + 1 < args.count, let d = Double(args[dIdx + 1]) {
             dur = d
         }
-        LiveDiagnosticsRunner.shared.start(duration: dur)
+        guard LiveDiagnosticsRunner.shared.start(duration: dur) else { exit(1) }
         CFRunLoopRun()
         return
     }
@@ -628,4 +679,3 @@ func main() {
 }
 
 main()
-

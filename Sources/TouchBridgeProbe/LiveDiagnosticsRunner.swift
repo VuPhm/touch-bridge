@@ -16,15 +16,25 @@ public final class LiveDiagnosticsRunner: NSObject, TouchBridgeRuntimeDelegate {
         super.init()
     }
     
-    public func start(duration: Double? = nil) {
+    @discardableResult
+    public func start(duration: Double? = nil) -> Bool {
+        let axAvailable = AXPermissionManager.shared.isTrusted()
+        print("AX enrichment: \(axAvailable ? "AVAILABLE" : "UNAVAILABLE (core input remains available)")")
+
+        guard runtime.start() else {
+            print("Core input runtime could not start.")
+            fflush(stdout)
+            return false
+        }
         self.isRunning = true
-        
+
         let boundDisplay = DisplayManager.shared.findExternalTouchscreenDisplay()
         
         print("""
         ================================================================================
                     TOUCHBRIDGE P3-03R — LIVE INTERACTION DIAGNOSTICS
         ================================================================================
+        Tap Backend:       \(runtime.router.tapBackendMode.diagnosticName)
         Target Display:    \(boundDisplay?.name ?? "External") (ID: \(boundDisplay?.id ?? 0), Bounds: \(boundDisplay?.cgWidth ?? 0)x\(boundDisplay?.cgHeight ?? 0))
         Target Touchscreen: USB2IIC_CTP_CONTROL (VID: 0x1A86, PID: 0xE5E3)
         Exclusive Seize:   kIOHIDOptionsTypeSeizeDevice (Digitizer Collection Exclusive)
@@ -45,14 +55,13 @@ public final class LiveDiagnosticsRunner: NSObject, TouchBridgeRuntimeDelegate {
         fflush(stdout)
         
         runtime.delegate = self
-        runtime.start()
         runtime.setEnabled(true)
         
         // Print Seize status
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             guard let self = self else { return }
             let seized = self.runtime.device.isExclusivelySeized
-            let status = seized ? "EXCLUSIVE SEIZED [PASS]" : "SHARED ACCESS [FALLBACK]"
+            let status = seized ? "EXCLUSIVE SEIZED [PASS]" : "OWNERSHIP UNAVAILABLE [INTERACTION DISABLED]"
             print("[HID OWNERSHIP] Device status: \(status)")
             if seized {
                 print("  -> macOS WindowServer / IOHIDEventSystem digitizer observation DETACHED.")
@@ -80,6 +89,7 @@ public final class LiveDiagnosticsRunner: NSObject, TouchBridgeRuntimeDelegate {
             LiveDiagnosticsRunner.shared.stop()
             exit(0)
         }
+        return true
     }
     
     public func stop() {
@@ -92,7 +102,8 @@ public final class LiveDiagnosticsRunner: NSObject, TouchBridgeRuntimeDelegate {
     private var lastPrintedState: String = ""
     
     private func sampleTelemetry() {
-        guard let session = runtime.recognizer.activeSession else { return }
+        let session = runtime.recognizer.activeSession
+        guard let session else { return }
         
         let contactsCount = runtime.recognizer.activeContacts.count
         let contactIDs = runtime.recognizer.activeContacts.keys.sorted().map { String($0) }.joined(separator: ", ")
@@ -104,20 +115,7 @@ public final class LiveDiagnosticsRunner: NSObject, TouchBridgeRuntimeDelegate {
         let speed = hypot(vel.dx, vel.dy)
         let seized = runtime.device.isExclusivelySeized ? "EXCLUSIVE" : "SHARED"
         
-        let backend: String
-        if session.state == .directPan || session.state == .momentum {
-            backend = "CG_SCROLL_WHEEL"
-        } else if let ctx = session.context {
-            if ctx.hitNode.supportedActions.contains(kAXPressAction as String) {
-                backend = "AX_PRESS"
-            } else if ctx.hitNode.isFocusSettable {
-                backend = "AX_FOCUS"
-            } else {
-                backend = "CG_PRIMARY_CLICK"
-            }
-        } else {
-            backend = "CG_PRIMARY_CLICK"
-        }
+        let backend = session.diagnosticBackend
         
         let line = String(
             format: "[DIAG] Contacts: %d [IDs: %@] | PrimID: %d | Raw: (%4d, %4d) -> Mapped: (%6.1f, %6.1f) | State: %-12@ | Speed: %5.1f pt/s | Backend: %-16@ | Seize: %@",
@@ -158,7 +156,11 @@ public final class LiveDiagnosticsRunner: NSObject, TouchBridgeRuntimeDelegate {
     }
     
     public func runtime(_ runtime: TouchBridgeRuntime, didUpdateFeedback feedback: String, invariantPassed: Bool) {
-        print("[EVENT FEEDBACK] \(feedback) (Cursor Isolated: \(invariantPassed ? "YES" : "NO"))")
+        if runtime.router.tapBackendMode == .transientPointer {
+            print("[EVENT FEEDBACK] \(feedback) (Cursor Position Restored: \(invariantPassed ? "YES" : "NO"))")
+        } else {
+            print("[EVENT FEEDBACK] \(feedback) (Cursor Isolated: \(invariantPassed ? "YES" : "NO"))")
+        }
         fflush(stdout)
     }
     

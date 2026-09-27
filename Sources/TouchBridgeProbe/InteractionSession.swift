@@ -8,10 +8,10 @@ import ApplicationServices
 /// Deterministic states of a physical single-touch / multi-touch contact session (P3-03R Phase B).
 public enum GestureState: Equatable, CustomStringConvertible {
     case idle
-    case possibleTap        // Movement is below panThreshold; eligible for tap on release
-    case directPan          // Active continuous direct-touch pan (1 or 2 fingers)
+    case possibleTap        // One-finger tap candidate while movement remains within touch slop
+    case directPan          // Active continuous two-finger pan (or experimental one-finger pan)
     case momentum           // Kinetic coasting after flick release
-    case unsupportedPan     // Movement crossed panThreshold, but surface has no scroll backend
+    case unsupportedPan     // Two-finger pan has no scroll backend
     case tapExecuted        // Released while in possibleTap -> Tap successfully dispatched
     case cancelled(reason: String) // Cancelled (micro-glitch, hot-plug disconnect)
     
@@ -55,8 +55,11 @@ public enum InteractionResultType: String, Codable {
 public struct GestureArbitrationConfig {
     /// Baseline movement tolerance threshold in points (touch slop).
     /// Below this: candidate for TAP.
-    /// Exceeding this: permanently cancels TAP and transitions to DIRECT_PAN.
+    /// In product mode, exceeding this cancels TAP. Two-finger contact independently starts scrolling.
     public static var panThresholdPt: Double = 18.0
+
+    /// Diagnostic escape hatch for the retired one-finger pan behavior. Product defaults to false.
+    public static var experimentalOneFingerPanEnabled: Bool = false
     
     /// Minimum contact duration to filter out electrical glitches or micro-bounces (15 ms).
     public static var minTapDurationSec: Double = 0.015
@@ -74,6 +77,33 @@ public struct GestureArbitrationConfig {
     public static var minFlickVelocityPtPerSec: Double = 60.0
     public static var momentumDecayFactor: Double = 0.94
     public static var minMomentumVelocityPtPerSec: Double = 10.0
+
+    /// Finger-down smoothing is intentionally separate from release momentum.
+    public static let fingerDownSmoothingFrameIntervalSec: Double = 1.0 / 60.0
+    public static let fingerDownSmoothingMaxDurationSec: Double = 0.080
+    public static let fingerDownSmoothingDecayFactor: Double = 0.45
+    public static let fingerDownSmoothingMaxDistancePt: Double = 4.0
+}
+
+public struct FingerDownSmoothingTail {
+    private var velocityY: Double
+    private var elapsed: Double = 0
+    private var distance: Double = 0
+
+    public init(velocityY: Double) { self.velocityY = velocityY }
+
+    public mutating func nextDeltaY() -> Double? {
+        let dt = GestureArbitrationConfig.fingerDownSmoothingFrameIntervalSec
+        guard elapsed < GestureArbitrationConfig.fingerDownSmoothingMaxDurationSec,
+              distance < GestureArbitrationConfig.fingerDownSmoothingMaxDistancePt else { return nil }
+        let remaining = GestureArbitrationConfig.fingerDownSmoothingMaxDistancePt - distance
+        let delta = min(abs(velocityY) * dt, remaining) * (velocityY < 0 ? -1 : 1)
+        guard abs(delta) > 0.001 else { return nil }
+        distance += abs(delta)
+        elapsed += dt
+        velocityY *= GestureArbitrationConfig.fingerDownSmoothingDecayFactor
+        return delta
+    }
 }
 
 /// Actions emitted during gesture transition evaluation.
@@ -81,16 +111,18 @@ public enum GestureTransitionAction {
     case none
     case transitionedToPan(initialValue: Double)
     case transitionedToUnsupportedPan
+    case cancelledMovement
     case panValueUpdated(targetValue: Double, deltaPixels: CGVector)
 }
 
 /// Represents one explicit physical contact session (P3-02 Section 2 & P3-03R).
 public final class InteractionSession {
     public let id: String
-    public let contactID: Int
+    public private(set) var contactID: Int
     public var contactCount: Int = 1
     public var secondaryContactID: Int? = nil
     public var allowCGScrollFallback: Bool = true
+    public var experimentalOneFingerPanEnabled = GestureArbitrationConfig.experimentalOneFingerPanEnabled
     
     public let startTimeMach: UInt64
     public let startTimeDate: Date
@@ -104,6 +136,10 @@ public final class InteractionSession {
     public private(set) var maxMovementPt: Double = 0.0
     public private(set) var currentMovementPt: Double = 0.0
     public private(set) var state: GestureState = .possibleTap
+    public var diagnosticBackend: String {
+        if state == .directPan || state == .momentum { return "CG_SCROLL_WHEEL" }
+        return "TAP_INTENT_READY"
+    }
     
     // Velocity tracking (P3-03R Phase B & C)
     public private(set) var instantaneousVelocity: CGVector = .zero
@@ -112,7 +148,14 @@ public final class InteractionSession {
     private var lastSamplePoint: CGPoint
     
     // Cached Early Capability Context (P3-02 Section 4 & 9)
-    public let context: AXInteractionContext?
+    public var context: AXInteractionContext?
+    public var scrollDeliveryBackend: ScrollDeliveryBackend? = nil
+
+    public func applyAXEnrichment(_ context: AXInteractionContext) {
+        self.context = context
+        let title = context.hitNode.title ?? context.hitNode.descriptionText ?? ""
+        self.touchTargetDescription = title.isEmpty ? context.hitNode.role : "\(context.hitNode.role): \"\(title)\""
+    }
     
     // Continuous Pan Metrics (P3-02 Section 7)
     public let initialScrollValue: Double
@@ -134,7 +177,13 @@ public final class InteractionSession {
     public private(set) var delayedTapEmitted: Bool = false
     public var cursorBefore: CGPoint = .zero
     public var cursorAfter: CGPoint = .zero
+    public var pointerIsolationSatisfied: Bool? = nil
+    public var cursorActionClassification: String? = nil
     public var tapActionResult: String = "None"
+    public var interactionIntent: String = "NONE"
+    public var deliveryPolicy: String = "NOT_SELECTED"
+    public var deliveryBackend: String = "NOT_SELECTED"
+    public var axEnrichmentStatus: String = "NOT_REQUIRED"
     public var panActionResult: String = "None"
     public var transitionDescription: String = "possibleTap"
 
@@ -240,6 +289,13 @@ public final class InteractionSession {
             if dist > GestureArbitrationConfig.panThresholdPt {
                 self.timeToPanSec = now.timeIntervalSince(startTimeDate)
                 self.movementAtPanTransitionPt = dist
+
+                guard experimentalOneFingerPanEnabled else {
+                    state = .cancelled(reason: "MOVEMENT_TOLERANCE_EXCEEDED")
+                    transitionDescription = "possibleTap -> cancelled(movement tolerance exceeded)"
+                    panActionResult = "One-finger movement cancelled; scrolling requires two contacts"
+                    return .cancelledMovement
+                }
                 
                 // Permanently cancel TAP (P3-02 Section 3 & P3-03R)
                 if hasValidContinuousScrollBackend() {
@@ -275,12 +331,13 @@ public final class InteractionSession {
         }
     }
     
-    /// Immediate promotion to two-finger pan when a secondary contact arrives (P3-03R Phase B).
+    /// Immediate promotion to two-finger pan when a secondary contact arrives.
     public func promoteToTwoFingerPan(centroid: CGPoint, now: Date = Date()) {
-        guard state == .possibleTap else { return }
+        guard state == .possibleTap || state == .cancelled(reason: "MOVEMENT_TOLERANCE_EXCEEDED") else { return }
         self.contactCount = 2
         self.timeToPanSec = now.timeIntervalSince(startTimeDate)
         self.movementAtPanTransitionPt = currentMovementPt
+        rebaseMotion(point: centroid, now: now)
         if hasValidContinuousScrollBackend() {
             state = .directPan
             transitionDescription = "possibleTap -> directPan (two-finger)"
@@ -295,6 +352,15 @@ public final class InteractionSession {
             transitionDescription = "possibleTap -> unsupportedPan (two-finger)"
             panActionResult = "Unsupported two-finger pan suppressed"
         }
+    }
+
+    private func rebaseMotion(point: CGPoint, now: Date) {
+        let rebased = GlobalDisplayPoint(cgGlobal: point)
+        latestGlobalPoint = rebased
+        instantaneousVelocity = .zero
+        filteredVelocity = .zero
+        lastSamplePoint = point
+        lastSampleTimeDate = now
     }
     
     public func markMomentumStarted() {
@@ -321,11 +387,10 @@ public final class InteractionSession {
     }
     
     public func hasValidContinuousScrollBackend() -> Bool {
+        // AX semantic scrolling and CG compatibility scrolling are independent capabilities.
+        if allowCGScrollFallback { return true }
         if let ctx = context {
             if ctx.scrollCapability.hasScrollArea && ctx.scrollBarElement != nil && ctx.scrollCapability.isVerticalValueSettable {
-                return true
-            }
-            if ctx.scrollCapability.hasScrollArea && allowCGScrollFallback {
                 return true
             }
         }
@@ -441,6 +506,12 @@ public final class InteractionSession {
         Test: \(name)
         Touch target: \(target)
 
+        Intent: \(interactionIntent)
+        Policy: \(deliveryPolicy)
+        Delivery: \(deliveryBackend)
+        AX enrichment: \(axEnrichmentStatus)
+        Final delivery result: \(tapActionResult)
+
         Down:
           global point: \(global)
           hit element: \(hitElemStr)
@@ -466,6 +537,7 @@ public final class InteractionSession {
           before: (\(String(format: "%.1f", cursorBefore.x)), \(String(format: "%.1f", cursorBefore.y)))
           after: (\(String(format: "%.1f", cursorAfter.x)), \(String(format: "%.1f", cursorAfter.y)))
           delta: \(String(format: "%.2f", curDelta)) pt
+          cursor action classification: \(cursorActionClassification ?? "NOT APPLICABLE")
         """
     }
 }
