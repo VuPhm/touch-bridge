@@ -37,15 +37,7 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
             scrollCoordinator.forceFallback = preferContinuousCGScroll
         }
     }
-    /// Diagnostic A/B mode for determining whether the posted event location is
-    /// coupled to the physical cursor. The default preserves product behavior.
-    public var scrollLocationProbeMode: ScrollLocationProbeMode = .centroid
-    private var diagnosticScrollCursorLocation: CGPoint?
-    private var diagnosticScrollTargetPID: pid_t?
-    private var diagnosticScrollTargetWindowID: Int?
-    private var diagnosticAXWindowElement: AXUIElement?
-    public var scrollRoutingProbe: ScrollRoutingProbe?
-    private var lastScrollLocationProbeLog: [String: Date] = [:]
+
     /// Compatibility escape hatch. CG click events move the real system cursor on some hosts.
     public var allowCursorMovingCGFallback: Bool = false
     /// Unsafe experimental cursor restoration prototype; never enabled by the product path.
@@ -610,114 +602,7 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
         delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
     }
 
-    private func postScrollWheelEvent(location: CGPoint, deltaY: Double, phase: Int64, momentumPhase: Int64) {
-        guard let event = CGEvent(
-            scrollWheelEvent2Source: nil,
-            units: .pixel,
-            wheelCount: 1,
-            wheel1: Int32(round(deltaY)),
-            wheel2: 0,
-            wheel3: 0
-        ) else { return }
 
-        let eventLocation: CGPoint
-        switch scrollLocationProbeMode {
-        case .centroid, .pidCentroid:
-            eventLocation = location
-        case .preservePhysicalCursor, .pidCursor:
-            eventLocation = diagnosticScrollCursorLocation ?? SafetyInvariants.currentCursorPosition()
-        case .pidWindow:
-            eventLocation = location
-        }
-        event.location = eventLocation
-        event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
-        event.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
-        event.setIntegerValueField(.scrollWheelEventMomentumPhase, value: momentumPhase)
-        event.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: Int64(round(deltaY)))
-        event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: deltaY)
-        event.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: deltaY)
-        if (!loggedDirectScrollFields && phase == 2 && momentumPhase == 0 && abs(deltaY) > 0.001) || (!loggedMomentumFields && momentumPhase == 1) {
-            if momentumPhase == 1 { loggedMomentumFields = true } else { loggedDirectScrollFields = true }
-            TouchBridgeLogger.info(.semantic, "CG_SCROLL_WHEEL fields: units=pixel continuous=1 scrollPhase=\(phase) momentumPhase=\(momentumPhase) wheelDeltaY=\(Int32(round(deltaY))) fixedPixelDeltaY=\(String(format: "%.3f", deltaY)) pointPixelDeltaY=\(String(format: "%.3f", deltaY))")
-        }
-        if scrollLocationProbeMode != .centroid {
-            let logKey = "\(phase):\(momentumPhase)"
-            let now = Date()
-            if lastScrollLocationProbeLog[logKey].map({ now.timeIntervalSince($0) >= 0.5 }) ?? true {
-                lastScrollLocationProbeLog[logKey] = now
-                let route = (scrollLocationProbeMode == .pidCentroid || scrollLocationProbeMode == .pidCursor || scrollLocationProbeMode == .pidWindow)
-                    ? "PID=\(diagnosticScrollTargetPID.map(String.init) ?? "UNRESOLVED") window=\(diagnosticScrollTargetWindowID.map(String.init) ?? "UNRESOLVED")"
-                    : "CGHID"
-                TouchBridgeLogger.info(.semantic, "SCROLL_LOCATION_PROBE mode=\(scrollLocationProbeMode.rawValue) route=\(route) touch=(\(String(format: "%.1f", location.x)),\(String(format: "%.1f", location.y))) event=(\(String(format: "%.1f", eventLocation.x)),\(String(format: "%.1f", eventLocation.y))) phase=\(phase) momentum=\(momentumPhase)")
-            }
-        }
-        if scrollLocationProbeMode == .pidWindow {
-            guard let pid = diagnosticScrollTargetPID, diagnosticScrollTargetWindowID != nil else {
-                TouchBridgeLogger.warning(.semantic, "WINDOW_SCROLL_SUPPRESSED: AX target PID/window did not correlate uniquely; no event was posted.")
-                return
-            }
-            guard let metadata = scrollRoutingProbe?.attachExperimentallyJustifiedWindowFields(to: event, targetWindowID: diagnosticScrollTargetWindowID) else {
-                TouchBridgeLogger.warning(.semantic, "WINDOW_SCROLL_SUPPRESSED: no physical scroll field was correlated to a WindowServer ID; Diagnostic E metadata is unjustified.")
-                return
-            }
-            TouchBridgeLogger.info(.semantic, "WINDOW_SCROLL_METADATA \(metadata)")
-            event.postToPid(pid)
-        } else if scrollLocationProbeMode == .pidCentroid || scrollLocationProbeMode == .pidCursor {
-            guard let pid = diagnosticScrollTargetPID else {
-                TouchBridgeLogger.warning(.semantic, "PID_SCROLL_SUPPRESSED: AX hit-test did not resolve a target PID; no CGHID fallback was posted.")
-                return
-            }
-            event.postToPid(pid)
-        } else {
-            event.post(tap: .cghidEventTap)
-        }
-    }
-
-    private func resolveDiagnosticScrollTarget(session: InteractionSession) -> (pid: pid_t?, windowID: Int?, axWindow: AXUIElement?) {
-        guard AXPermissionManager.shared.isTrusted() else {
-            TouchBridgeLogger.warning(.semantic, "AX_TARGET_PROBE coordinate=unavailable result=AX_PERMISSION_UNAVAILABLE")
-            return (nil, nil, nil)
-        }
-        let point = session.latestGlobalPoint.cgGlobal
-        let (element, snapshot, error) = AXSemanticEngine.shared.probeElementAt(globalCG: point, includeWindow: true)
-        guard error == .success, let element, let snapshot else {
-            TouchBridgeLogger.warning(.semantic, "AX_TARGET_RESOLUTION_FAILURE coordinate=cg-global point=(\(String(format: "%.1f", point.x)),\(String(format: "%.1f", point.y))) error=\(error.rawValue)")
-            return (nil, nil, nil)
-        }
-        var pid: pid_t = 0
-        guard AXUIElementGetPid(element, &pid) == .success, pid > 0 else {
-            TouchBridgeLogger.warning(.semantic, "AX_TARGET_RESOLUTION_FAILURE coordinate=cg-global result=PID_UNAVAILABLE role=\(snapshot.role) subrole=\(snapshot.subrole ?? "nil")")
-            return (nil, nil, nil)
-        }
-        var windowRef: CFTypeRef?
-        let windowError = AXUIElementCopyAttributeValue(element, kAXWindowAttribute as CFString, &windowRef)
-        let axWindow: AXUIElement?
-        if windowError == .success, let windowRef, CFGetTypeID(windowRef) == AXUIElementGetTypeID() {
-            axWindow = unsafeBitCast(windowRef, to: AXUIElement.self)
-        } else {
-            axWindow = nil
-        }
-        let window = scrollRoutingProbe?.correlateAXWindow(pid: pid, window: snapshot.window)
-        TouchBridgeLogger.info(.semantic, "AX_TARGET_LATCH coordinate=cg-global pid=\(pid) app=\(snapshot.applicationName) elementRole=\(snapshot.role) elementSubrole=\(snapshot.subrole ?? "nil") elementTitle=\(snapshot.title ?? "nil") AXWindowRole=\(snapshot.window?.role ?? "nil") AXWindowSubrole=\(snapshot.window?.subrole ?? "nil") AXWindowTitle=\(snapshot.window?.title ?? "nil") AXWindowPosition=\(snapshot.window?.position.map(String.init(describing:)) ?? "nil") AXWindowSize=\(snapshot.window?.size.map(String.init(describing:)) ?? "nil") main=\(snapshot.window?.isMain.map(String.init(describing:)) ?? "nil") focused=\(snapshot.window?.isFocused.map(String.init(describing:)) ?? "nil") CGCorrelation=\(window?.status ?? "UNAVAILABLE") CGWindowID=\(window?.windowID.map(String.init) ?? "nil") candidates=\(window?.candidates.joined(separator: "|") ?? "nil")")
-        return (pid, window?.windowID, axWindow)
-    }
-
-    private func clearDiagnosticScrollTarget() {
-        if let axWindow = diagnosticAXWindowElement {
-            func value(_ attribute: String) -> String {
-                var raw: CFTypeRef?
-                guard AXUIElementCopyAttributeValue(axWindow, attribute as CFString, &raw) == .success,
-                      let raw else { return "unavailable" }
-                if let bool = raw as? Bool { return String(bool) }
-                return String(describing: raw)
-            }
-            TouchBridgeLogger.info(.semantic, "AX_TARGET_LATCH_END windowID=\(diagnosticScrollTargetWindowID.map(String.init) ?? "nil") title=\(value(kAXTitleAttribute)) main=\(value(kAXMainAttribute)) focused=\(value(kAXFocusedAttribute)) frontmostPID=\(NSWorkspace.shared.frontmostApplication?.processIdentifier.description ?? "unknown")")
-        }
-        diagnosticScrollTargetPID = nil
-        diagnosticScrollTargetWindowID = nil
-        diagnosticAXWindowElement = nil
-        diagnosticScrollCursorLocation = nil
-    }
 
     private func startFingerDownSmoothing(session: InteractionSession) {
         let dt = GestureArbitrationConfig.fingerDownSmoothingFrameIntervalSec

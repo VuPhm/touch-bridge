@@ -11,8 +11,6 @@ public final class LiveDiagnosticsRunner: NSObject, TouchBridgeRuntimeDelegate {
     private let runtime = TouchBridgeRuntime.shared
     private var isRunning: Bool = false
     private var timer: Timer? = nil
-    public var scrollRoutingProbeEnabled = false
-    private let scrollRoutingProbe = ScrollRoutingProbe()
     
     public override init() {
         super.init()
@@ -58,10 +56,6 @@ public final class LiveDiagnosticsRunner: NSObject, TouchBridgeRuntimeDelegate {
         
         runtime.delegate = self
         runtime.setEnabled(true)
-        if scrollRoutingProbeEnabled {
-            runtime.router.scrollRoutingProbe = scrollRoutingProbe
-            _ = scrollRoutingProbe.start()
-        }
         
         // Print Seize status
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
@@ -109,14 +103,6 @@ public final class LiveDiagnosticsRunner: NSObject, TouchBridgeRuntimeDelegate {
     
     private func sampleTelemetry() {
         let session = runtime.recognizer.activeSession
-        let isScrolling = session?.state == .directPan || session?.state == .momentum
-        if scrollRoutingProbeEnabled {
-            scrollRoutingProbe.sample(
-                active: isScrolling,
-                state: session?.state.description ?? "IDLE",
-                touchPoint: session?.latestGlobalPoint.cgGlobal
-            )
-        }
         guard let session else { return }
         
         let contactsCount = runtime.recognizer.activeContacts.count

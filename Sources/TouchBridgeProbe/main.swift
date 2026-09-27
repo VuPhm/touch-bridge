@@ -369,17 +369,6 @@ func main() {
         tapBackendMode = parsed
     }
     TouchBridgeRuntime.shared.router.tapBackendMode = tapBackendMode
-    var scrollProbeMode: ScrollLocationProbeMode?
-    if let probeIndex = args.firstIndex(of: "--scroll-location-probe") {
-        guard probeIndex + 1 < args.count, let mode = ScrollLocationProbeMode(rawValue: args[probeIndex + 1]) else {
-            fputs("[ERROR] --scroll-location-probe must be centroid, cursor, pid-centroid, pid-cursor, or pid-window.\n", stderr)
-            exit(2)
-        }
-        scrollProbeMode = mode
-        TouchBridgeRuntime.shared.router.scrollLocationProbeMode = mode
-        LiveDiagnosticsRunner.shared.scrollRoutingProbeEnabled = true
-        print("Scroll location probe: \(mode.rawValue) (production default remains centroid)")
-    }
     print("Tap Backend: \(tapBackendMode.diagnosticName)")
     fflush(stdout)
     
@@ -402,7 +391,7 @@ func main() {
         exit(report.allPassed ? 0 : 1)
     }
     
-    let liveDiagnostics = args.contains("--live-diagnostics") || args.contains("--diagnostics") || scrollProbeMode != nil
+    let liveDiagnostics = args.contains("--live-diagnostics") || args.contains("--diagnostics")
     if args.contains("--request-accessibility") && !liveDiagnostics {
         requestAccessibilityPermissionFromCLI()
         exit(0)
