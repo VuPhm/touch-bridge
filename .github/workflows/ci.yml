@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main", "feature/**" ]
+  pull_request:
+    branches: [ "main" ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build & Architecture Verification
+    runs-on: macos-14
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Check Swift Version
+        run: swift --version
+
+      - name: Build Release Binary
+        run: swift build -c release
+
+      - name: Run Headless Architecture Tests
+        run: swift run TouchBridgeProbe --test-architecture
+
+      - name: Package Release Archive (Dry Run)
+        run: |
+          mkdir -p build/release
+          cp .build/release/TouchBridgeProbe build/release/TouchBridge
+          cd build/release && zip -q TouchBridge-Headless-macOS.zip TouchBridge
+          shasum -a 256 TouchBridge-Headless-macOS.zip > SHA256SUMS
+          cat SHA256SUMS
