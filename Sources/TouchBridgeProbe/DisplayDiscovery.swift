@@ -53,6 +53,23 @@ public enum DisplayChangeEvent {
     case displayRemoved(CGDirectDisplayID)
     case boundsOrModeChanged(CGDirectDisplayID)
     case arrangementChanged
+    case systemWillSleep
+    case systemDidWake
+}
+
+private let displayReconfigCallback: CGDisplayReconfigurationCallBack = { displayID, flags, userInfo in
+    guard let userInfo = userInfo else { return }
+    if flags.contains(.beginConfigurationFlag) { return }
+    let manager = Unmanaged<DisplayManager>.fromOpaque(userInfo).takeUnretainedValue()
+    if flags.contains(.addFlag) {
+        manager.handleReconfigEvent(.displayAdded(displayID))
+    } else if flags.contains(.removeFlag) {
+        manager.handleReconfigEvent(.displayRemoved(displayID))
+    } else if flags.contains(.movedFlag) || flags.contains(.setModeFlag) {
+        manager.handleReconfigEvent(.boundsOrModeChanged(displayID))
+    } else {
+        manager.handleReconfigEvent(.arrangementChanged)
+    }
 }
 
 public final class DisplayManager {
@@ -61,8 +78,16 @@ public final class DisplayManager {
     private var isReconfigRegistered = false
     private var changeHandler: ((DisplayChangeEvent) -> Void)?
     private var appKitObserver: NSObjectProtocol?
+    private var wakeObserver: NSObjectProtocol?
+    private var screensWakeObserver: NSObjectProtocol?
+    private var sleepObserver: NSObjectProtocol?
+    private var screensSleepObserver: NSObjectProtocol?
     
     private init() {}
+
+    fileprivate func handleReconfigEvent(_ event: DisplayChangeEvent) {
+        changeHandler?(event)
+    }
     
     public func enumerateDisplays() -> [DisplayMetadata] {
         var results: [DisplayMetadata] = []
@@ -137,8 +162,18 @@ public final class DisplayManager {
         if externals.isEmpty {
             return nil
         }
+
+        // 2. Prefer an external display that matches an existing saved calibration profile by hardware identity (Vendor/Model/Serial)
+        if let files = try? FileManager.default.contentsOfDirectory(at: CalibrationProfileStore.authoritativeDirectory, includingPropertiesForKeys: nil) {
+            for url in files where url.pathExtension == "json" && url.lastPathComponent.hasPrefix("calibration_display_") {
+                if let prof = try? CalibrationProfile.load(from: url),
+                   let matchedByIdentity = externals.first(where: { prof.matchesHardwareIdentity(of: $0) }) {
+                    return matchedByIdentity
+                }
+            }
+        }
         
-        // 2. If an external display matches known touchscreen labels like "TYPE C" or contains "touch"
+        // 3. If an external display matches known touchscreen labels like "TYPE C" or contains "touch"
         if let matched = externals.first(where: {
             let lower = $0.name.lowercased()
             return lower.contains("type c") || lower.contains("touch") || lower.contains("ctp")
@@ -146,12 +181,12 @@ public final class DisplayManager {
             return matched
         }
         
-        // 3. If there is exactly one external display, it is the target
+        // 4. If there is exactly one external display, it is the target
         if externals.count == 1 {
             return externals.first
         }
         
-        // 4. Fallback to first external display
+        // 5. Fallback to first external display
         return externals.first
     }
     
@@ -166,21 +201,7 @@ public final class DisplayManager {
             isReconfigRegistered = true
             let context = Unmanaged.passUnretained(self).toOpaque()
             
-            CGDisplayRegisterReconfigurationCallback({ displayID, flags, userInfo in
-                guard let userInfo = userInfo else { return }
-                // Only process when reconfiguration has finalized (not beginning)
-                if flags.contains(.beginConfigurationFlag) { return }
-                
-                let manager = Unmanaged<DisplayManager>.fromOpaque(userInfo).takeUnretainedValue()
-                
-                if flags.contains(.addFlag) {
-                    manager.changeHandler?(.displayAdded(displayID))
-                } else if flags.contains(.removeFlag) {
-                    manager.changeHandler?(.displayRemoved(displayID))
-                } else if flags.contains(.movedFlag) || flags.contains(.setModeFlag) {
-                    manager.changeHandler?(.boundsOrModeChanged(displayID))
-                }
-            }, context)
+            CGDisplayRegisterReconfigurationCallback(displayReconfigCallback, context)
             
             appKitObserver = NotificationCenter.default.addObserver(
                 forName: NSApplication.didChangeScreenParametersNotification,
@@ -189,16 +210,63 @@ public final class DisplayManager {
             ) { [weak self] _ in
                 self?.changeHandler?(.arrangementChanged)
             }
+
+            let wsCenter = NSWorkspace.shared.notificationCenter
+            wakeObserver = wsCenter.addObserver(
+                forName: NSWorkspace.didWakeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.changeHandler?(.systemDidWake)
+            }
+            screensWakeObserver = wsCenter.addObserver(
+                forName: NSWorkspace.screensDidWakeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.changeHandler?(.systemDidWake)
+            }
+            sleepObserver = wsCenter.addObserver(
+                forName: NSWorkspace.willSleepNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.changeHandler?(.systemWillSleep)
+            }
+            screensSleepObserver = wsCenter.addObserver(
+                forName: NSWorkspace.screensDidSleepNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.changeHandler?(.systemWillSleep)
+            }
         }
     }
     
     public func stopMonitoring() {
         if isReconfigRegistered {
             let context = Unmanaged.passUnretained(self).toOpaque()
-            CGDisplayRemoveReconfigurationCallback({ _, _, _ in }, context)
+            CGDisplayRemoveReconfigurationCallback(displayReconfigCallback, context)
             if let obs = appKitObserver {
                 NotificationCenter.default.removeObserver(obs)
                 appKitObserver = nil
+            }
+            let wsCenter = NSWorkspace.shared.notificationCenter
+            if let wObs = wakeObserver {
+                wsCenter.removeObserver(wObs)
+                wakeObserver = nil
+            }
+            if let swObs = screensWakeObserver {
+                wsCenter.removeObserver(swObs)
+                screensWakeObserver = nil
+            }
+            if let sObs = sleepObserver {
+                wsCenter.removeObserver(sObs)
+                sleepObserver = nil
+            }
+            if let ssObs = screensSleepObserver {
+                wsCenter.removeObserver(ssObs)
+                screensSleepObserver = nil
             }
             isReconfigRegistered = false
             changeHandler = nil

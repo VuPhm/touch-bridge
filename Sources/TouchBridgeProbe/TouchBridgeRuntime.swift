@@ -2,6 +2,7 @@ import Foundation
 import Cocoa
 import CoreGraphics
 import ApplicationServices
+import ServiceManagement
 
 // MARK: - Central TouchBridge Prototype Runtime (P3-01 Section 2 & 3)
 
@@ -60,6 +61,10 @@ public final class TouchBridgeRuntime: NSObject, TouchscreenDeviceDelegate, HIDF
         )
     }
     
+    private let kPrefUserEnabled = "touchbridge.user_enabled"
+    private let kPrefDirectTouch = "touchbridge.direct_touch_mode"
+    private let kPrefInvertQuarterTurn = "touchbridge.invert_quarter_turn"
+
     public override init() {
         self.device = TouchscreenDevice()
         self.frameSource = HIDFrameSource()
@@ -69,12 +74,65 @@ public final class TouchBridgeRuntime: NSObject, TouchscreenDeviceDelegate, HIDF
         
         super.init()
         
+        // Restore user preferences
+        let defaults = UserDefaults.standard
+        let savedEnabled = defaults.object(forKey: kPrefUserEnabled) != nil ? defaults.bool(forKey: kPrefUserEnabled) : true
+        self.userIntent = savedEnabled ? .enabled : .disabled
+
+        let savedDirectTouch = defaults.object(forKey: kPrefDirectTouch) != nil ? defaults.bool(forKey: kPrefDirectTouch) : true
+        recognizer.directTouchModeEnabled = savedDirectTouch
+        recognizer.experimentalOneFingerPanEnabled = savedDirectTouch
+
+        let savedInvert = defaults.object(forKey: kPrefInvertQuarterTurn) != nil ? defaults.bool(forKey: kPrefInvertQuarterTurn) : false
+        CalibrationProfile.invertQuarterTurnDirection = savedInvert
+        router.showKeyboardPillOnTextTap = false
+
         // Wire pipeline delegates
         device.delegate = self
         frameSource.delegate = self
         recognizer.delegate = router
         router.delegate = self
         router.userIntent = userIntent
+    }
+
+    public func setDirectTouchModeEnabled(_ enabled: Bool) {
+        recognizer.directTouchModeEnabled = enabled
+        recognizer.experimentalOneFingerPanEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: kPrefDirectTouch)
+        TouchBridgeLogger.info(.gesture, "Direct-Touch 1-Finger Mode: \(enabled ? "ENABLED" : "DISABLED")")
+        evaluateEngineState()
+    }
+
+    public func setInvertQuarterTurnRotation(_ inverted: Bool) {
+        CalibrationProfile.invertQuarterTurnDirection = inverted
+        UserDefaults.standard.set(inverted, forKey: kPrefInvertQuarterTurn)
+        TouchBridgeLogger.info(.calibration, "Quarter-turn rotation mapping direction inverted: \(inverted)")
+        resolveAndBindDisplay()
+        evaluateEngineState()
+    }
+
+    public var launchAtLogin: Bool {
+        get {
+            if #available(macOS 13.0, *) {
+                return SMAppService.mainApp.status == .enabled
+            }
+            return false
+        }
+        set {
+            if #available(macOS 13.0, *) {
+                do {
+                    if newValue {
+                        try SMAppService.mainApp.register()
+                        TouchBridgeLogger.info(.lifecycle, "Launch at login enabled via SMAppService.")
+                    } else {
+                        try SMAppService.mainApp.unregister()
+                        TouchBridgeLogger.info(.lifecycle, "Launch at login disabled via SMAppService.")
+                    }
+                } catch {
+                    TouchBridgeLogger.warning(.lifecycle, "Failed to update launch at login: \(error.localizedDescription)")
+                }
+            }
+        }
     }
     
     // MARK: - Lifecycle
@@ -111,6 +169,8 @@ public final class TouchBridgeRuntime: NSObject, TouchscreenDeviceDelegate, HIDF
     
     public func shutdown() {
         TouchBridgeLogger.info(.lifecycle, "Shutting down TouchBridge Runtime...")
+        recognizer.reset()
+        router.resetGestureState()
         device.stop()
         displayManager.stopMonitoring()
         hasStartedRuntime = false
@@ -121,9 +181,14 @@ public final class TouchBridgeRuntime: NSObject, TouchscreenDeviceDelegate, HIDF
     
     public func setEnabled(_ enabled: Bool) {
         let newIntent: UserIntent = enabled ? .enabled : .disabled
+        UserDefaults.standard.set(enabled, forKey: kPrefUserEnabled)
         guard userIntent != newIntent else { return }
         userIntent = newIntent
         router.userIntent = newIntent
+        if newIntent == .disabled {
+            recognizer.reset()
+            router.resetGestureState()
+        }
         
         TouchBridgeLogger.info(.lifecycle, "User toggled TouchBridge: \(userIntent.description.uppercased())")
         evaluateEngineState()
@@ -197,7 +262,7 @@ public final class TouchBridgeRuntime: NSObject, TouchscreenDeviceDelegate, HIDF
     }
     
     private func resolveCalibrationProfile(for display: DisplayMetadata) {
-        let profile = profileStore.loadProfile(for: display.id, customPath: customProfilePath)
+        let profile = profileStore.loadProfile(for: display.id, targetDisplay: display, customPath: customProfilePath)
         let evalState = profileStore.evaluate(
             profile: profile,
             targetDisplay: display,
@@ -230,14 +295,38 @@ public final class TouchBridgeRuntime: NSObject, TouchscreenDeviceDelegate, HIDF
     private func handleDisplayChangeEvent(_ event: DisplayChangeEvent) {
         TouchBridgeLogger.info(.display, "Display reconfiguration event: \(event)")
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+        if case .systemWillSleep = event {
+            self.recognizer.reset()
+            self.router.resetGestureState()
+            TouchBridgeLogger.info(.lifecycle, "System entering sleep: Active gestures, drag transactions and pointer states safely cleared.")
+            return
+        }
+        
+        let delay: Double
+        if case .systemDidWake = event {
+            delay = 0.35
+        } else {
+            delay = 0.1
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self = self else { return }
             
-            let previousBoundID = self.displayState.boundDisplay?.id
             let displays = self.displayManager.enumerateDisplays()
+            let currentDisplay: DisplayMetadata?
+            if let overrideID = self.targetDisplayIDOverride {
+                currentDisplay = displays.first(where: { $0.id == overrideID })
+            } else if let prevID = self.displayState.boundDisplay?.id,
+                      let sameID = displays.first(where: { $0.id == prevID }) {
+                currentDisplay = sameID
+            } else {
+                currentDisplay = self.displayManager.findExternalTouchscreenDisplay()
+            }
             
-            guard let previousID = previousBoundID, let currentDisplay = displays.first(where: { $0.id == previousID }) else {
+            guard let boundDisplay = currentDisplay else {
                 // Target display missing or removed
+                self.recognizer.reset()
+                self.router.resetGestureState()
                 self.displayState = .targetMissing
                 self.calibrationState = .missing
                 self.mapper.updateBinding(display: nil, profile: nil)
@@ -246,25 +335,11 @@ public final class TouchBridgeRuntime: NSObject, TouchscreenDeviceDelegate, HIDF
                 return
             }
             
-            // Re-evaluate display configuration and calibration
-            if let activeProf = self.calibrationState.activeProfile {
-                let staleCheck = activeProf.isStale(for: currentDisplay)
-                if staleCheck.stale {
-                    let reason = staleCheck.reason ?? "Display geometry modified"
-                    self.displayState = .configurationChanged(reason: reason)
-                    self.calibrationState = .stale(reason: reason)
-                    TouchBridgeLogger.warning(.display, "Display geometry changed incompatibly: \(reason). Calibration marked STALE.")
-                } else {
-                    // Compatible change (e.g. position in desktop space updated)
-                    self.displayState = .bound(currentDisplay)
-                    self.mapper.updateBinding(display: currentDisplay, profile: activeProf)
-                    self.recognizer.updateBinding()
-                    TouchBridgeLogger.info(.display, "Display arrangement updated; calibration remains VALID.")
-                }
-            } else {
-                self.resolveCalibrationProfile(for: currentDisplay)
+            self.displayState = .bound(boundDisplay)
+            self.resolveCalibrationProfile(for: boundDisplay)
+            if case .stale(let reason) = self.calibrationState {
+                self.displayState = .configurationChanged(reason: reason)
             }
-            
             self.evaluateEngineState()
         }
     }
@@ -297,8 +372,9 @@ public final class TouchBridgeRuntime: NSObject, TouchscreenDeviceDelegate, HIDF
         frameSource.touchscreenDevice(device, didChangeState: state)
         
         if state == .disconnected {
-            // Hot-plug disconnect: reset active contact state and gesture recognizer immediately
+            // Hot-plug disconnect: reset active contact state, gesture recognizer, and any held pointer/scroll transactions immediately
             recognizer.reset()
+            router.resetGestureState()
             TouchBridgeLogger.warning(.hid, "Touchscreen DISCONNECTED: Active contact and gesture states reset immediately.")
         } else if case .available = state {
             frameSource.updateRanges(

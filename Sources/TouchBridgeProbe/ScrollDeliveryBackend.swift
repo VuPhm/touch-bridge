@@ -16,9 +16,20 @@ public protocol ScrollDeliveryBackend: AnyObject {
 
     func begin(session: InteractionSession, touchPoint: CGPoint) -> Bool
     func update(deltaY: Double, velocityY: Double, currentTouchPoint: CGPoint)
+    func update(delta: CGVector, velocity: CGVector, currentTouchPoint: CGPoint)
     func momentumUpdate(deltaY: Double, velocityY: Double)
+    func momentumUpdate(delta: CGVector, velocity: CGVector)
     func end(session: InteractionSession)
     func cancel(session: InteractionSession, reason: String)
+}
+
+public extension ScrollDeliveryBackend {
+    func update(delta: CGVector, velocity: CGVector, currentTouchPoint: CGPoint) {
+        update(deltaY: Double(delta.dy), velocityY: Double(velocity.dy), currentTouchPoint: currentTouchPoint)
+    }
+    func momentumUpdate(delta: CGVector, velocity: CGVector) {
+        momentumUpdate(deltaY: Double(delta.dy), velocityY: Double(velocity.dy))
+    }
 }
 
 // MARK: - Backend A: AX Semantic Scroll (Preferred)
@@ -45,6 +56,7 @@ public final class AXSemanticScrollBackend: ScrollDeliveryBackend {
     public private(set) var totalOperationsCount: Int = 0
     public private(set) var coalescedSkipCount: Int = 0
     public private(set) var isCompleted: Bool = false
+    private var pendingNormalizedDelta: Double = 0.0
 
     /// Optional hook for deterministic unit testing.
     public var customValueSetter: ((Double) -> AXError)? = nil
@@ -146,6 +158,7 @@ public final class AXSemanticScrollBackend: ScrollDeliveryBackend {
         isCompleted = false
         currentValue = initialValue
         accumulatedDeltaY = 0.0
+        pendingNormalizedDelta = 0.0
         totalOperationsCount = 1
 
         let role = scrollAreaElement != nil ? "AXScrollArea" : "AXScrollBar"
@@ -170,13 +183,16 @@ public final class AXSemanticScrollBackend: ScrollDeliveryBackend {
 
         // Natural touch scroll: dragging finger UP (deltaY < 0) reveals content below (value increases)
         let normalizedDelta = -deltaY / effectiveTrack * (maxValue - minValue)
-        let targetValue = min(maxValue, max(minValue, currentValue + normalizedDelta))
+        pendingNormalizedDelta += normalizedDelta
+
+        let targetValue = min(maxValue, max(minValue, currentValue + pendingNormalizedDelta))
 
         if abs(targetValue - currentValue) < 0.0005 {
             coalescedSkipCount += 1
             return
         }
 
+        pendingNormalizedDelta = 0.0
         dispatchWrite(value: targetValue)
     }
 
@@ -189,11 +205,14 @@ public final class AXSemanticScrollBackend: ScrollDeliveryBackend {
             effectiveTrack = max(200.0, scrollAreaHeight * 1.5)
         }
         let normalizedDelta = -deltaY / effectiveTrack * (maxValue - minValue)
-        let targetValue = min(maxValue, max(minValue, currentValue + normalizedDelta))
+        pendingNormalizedDelta += normalizedDelta
+
+        let targetValue = min(maxValue, max(minValue, currentValue + pendingNormalizedDelta))
         if abs(targetValue - currentValue) < 0.0005 {
             coalescedSkipCount += 1
             return
         }
+        pendingNormalizedDelta = 0.0
         dispatchWrite(value: targetValue)
     }
 
@@ -217,6 +236,13 @@ public final class AXSemanticScrollBackend: ScrollDeliveryBackend {
     public func end(session: InteractionSession) {
         guard !isCompleted else { return }
         isCompleted = true
+        if abs(pendingNormalizedDelta) >= 0.0001 {
+            let finalValue = min(maxValue, max(minValue, currentValue + pendingNormalizedDelta))
+            pendingNormalizedDelta = 0.0
+            if finalValue != currentValue {
+                dispatchWrite(value: finalValue)
+            }
+        }
         let summary = "NATIVE_CURSOR_INDEPENDENT (AX_SEMANTIC) on [\(applicationName)]: initial=\(String(format: "%.3f", initialValue)), terminal=\(String(format: "%.3f", currentValue)), writes=\(totalOperationsCount), failures=\(writeFailureCount)"
         session.panActionResult = summary
         TouchBridgeLogger.info(
@@ -240,6 +266,8 @@ public final class TransientPointerScrollBackend: ScrollDeliveryBackend {
 
     public let operations: PointerTransactionOperating
     public let anchorPoint: CGPoint
+    public private(set) var targetWindowID: CGWindowID?
+    public private(set) var targetPID: pid_t?
     public private(set) var initialPhysicalCursor: CGPoint?
     public private(set) var relocated: Bool = false
     public private(set) var guardSnapshot: PointerTransactionGuard?
@@ -248,6 +276,18 @@ public final class TransientPointerScrollBackend: ScrollDeliveryBackend {
     public private(set) var writeFailureCount: Int = 0
     public private(set) var isCompleted: Bool = false
     public private(set) var physicalMouseInterferenceDetected: Bool = false
+    public private(set) var directSubpixelRemainderX: Double = 0.0
+    public private(set) var directSubpixelRemainderY: Double = 0.0
+    private var subpixelRemainder: Double = 0.0
+    private var subpixelRemainderX: Double = 0.0
+    public private(set) var momentumInputFrameCount: Int = 0
+    public private(set) var momentumPostedFrameCount: Int = 0
+    public private(set) var momentumPostFailureCount: Int = 0
+    public private(set) var momentumBufferedFrameCount: Int = 0
+    private var momentumInputDeltaY: Double = 0.0
+    private var momentumPostedDeltaY: Double = 0.0
+    private var momentumPostedWheel1PixelDeltaY: Int = 0
+    private(set) var momentumFrameDiagnostics: [String] = []
 
     public init(
         operations: PointerTransactionOperating = CoreGraphicsPointerTransactionOperations(),
@@ -258,8 +298,32 @@ public final class TransientPointerScrollBackend: ScrollDeliveryBackend {
         operations.prepareForTransactions()
     }
 
+    public func validateTargetWindowStillValid() -> Bool {
+        guard let wid = targetWindowID else { return true }
+        return AXCapabilityInspector.shared.isWindowStillValid(windowID: wid, expectedPID: targetPID)
+    }
+
     public func begin(session: InteractionSession, touchPoint: CGPoint) -> Bool {
         isCompleted = false
+        directSubpixelRemainderX = 0.0
+        directSubpixelRemainderY = 0.0
+        subpixelRemainder = 0.0
+        subpixelRemainderX = 0.0
+        momentumInputFrameCount = 0
+        momentumPostedFrameCount = 0
+        momentumPostFailureCount = 0
+        momentumBufferedFrameCount = 0
+        momentumInputDeltaY = 0.0
+        momentumPostedDeltaY = 0.0
+        momentumPostedWheel1PixelDeltaY = 0
+        momentumFrameDiagnostics.removeAll(keepingCapacity: true)
+        if let hitWindow = session.context?.windowHitInfo ?? AXCapabilityInspector.shared.resolveTopmostWindow(at: touchPoint) {
+            targetWindowID = hitWindow.windowID
+            targetPID = hitWindow.ownerPID
+        } else {
+            targetWindowID = nil
+            targetPID = session.context?.pid
+        }
         initialPhysicalCursor = operations.cursorPosition()
         let snapshot = operations.pointerActivitySnapshot()
         guardSnapshot = PointerTransactionGuard(snapshot: snapshot)
@@ -272,36 +336,105 @@ public final class TransientPointerScrollBackend: ScrollDeliveryBackend {
         }
 
         // Post began scroll event at fixed anchor
-        operations.postScrollWheel(at: anchorPoint, deltaY: 0, phase: 1, momentumPhase: 0)
+        operations.postScrollWheel2D(at: anchorPoint, deltaX: 0, deltaY: 0, phase: 1, momentumPhase: 0)
         totalOperationsCount = 1
 
         let cursorStr = initialPhysicalCursor.map { "(\(Int($0.x)),\(Int($0.y)))" } ?? "nil"
         TouchBridgeLogger.info(
             .semantic,
-            "SCROLL_BACKEND: TRANSIENT_POINTER_FALLBACK initialCursor=\(cursorStr) anchor=(\(Int(anchorPoint.x)),\(Int(anchorPoint.y))) relocated=\(relocated)"
+            "SCROLL_BACKEND: TRANSIENT_POINTER_FALLBACK initialCursor=\(cursorStr) anchor=(\(Int(anchorPoint.x)),\(Int(anchorPoint.y))) relocated=\(relocated) windowID=\(targetWindowID.map(String.init) ?? "none")"
         )
         session.panActionResult = "DIRECT_PAN -> CG_SCROLL_WHEEL (transient pointer fallback)"
         return true
     }
 
     public func update(deltaY: Double, velocityY: Double, currentTouchPoint: CGPoint) {
+        update(delta: CGVector(dx: 0, dy: deltaY), velocity: CGVector(dx: 0, dy: velocityY), currentTouchPoint: currentTouchPoint)
+    }
+
+    public func update(delta: CGVector, velocity: CGVector, currentTouchPoint: CGPoint) {
         guard !isCompleted else { return }
+        let totalX = Double(delta.dx) + directSubpixelRemainderX
+        let totalY = Double(delta.dy) + directSubpixelRemainderY
+        let wholeX = round(totalX)
+        let wholeY = round(totalY)
+        directSubpixelRemainderX = totalX - wholeX
+        directSubpixelRemainderY = totalY - wholeY
+
+        guard abs(wholeX) >= 1.0 || abs(wholeY) >= 1.0 else {
+            return
+        }
         // Crucial invariant: never move cursor with touch updates. Always post at fixed anchorPoint!
-        operations.postScrollWheel(at: anchorPoint, deltaY: deltaY, phase: 2, momentumPhase: 0)
+        operations.postScrollWheel2D(at: anchorPoint, deltaX: wholeX, deltaY: wholeY, phase: 2, momentumPhase: 0)
         totalOperationsCount += 1
     }
 
     public func momentumUpdate(deltaY: Double, velocityY: Double) {
+        momentumUpdate(delta: CGVector(dx: 0, dy: deltaY), velocity: CGVector(dx: 0, dy: velocityY))
+    }
+
+    public func momentumUpdate(delta: CGVector, velocity: CGVector) {
         guard !isCompleted else { return }
         // During momentum, cursor remains stationary at anchorPoint
-        operations.postScrollWheel(at: anchorPoint, deltaY: deltaY, phase: 0, momentumPhase: 2)
-        totalOperationsCount += 1
+        let deltaY = Double(delta.dy)
+        let deltaX = Double(delta.dx)
+        momentumInputFrameCount += 1
+        momentumInputDeltaY += deltaY
+        let totalY = deltaY + subpixelRemainder
+        let wholeY = round(totalY)
+        subpixelRemainder = totalY - wholeY
+        let totalX = deltaX + subpixelRemainderX
+        let wholeX = round(totalX)
+        subpixelRemainderX = totalX - wholeX
+
+        if abs(wholeY) >= 1.0 || abs(wholeX) >= 1.0 {
+            let posted = operations.postScrollWheel2D(at: anchorPoint, deltaX: wholeX, deltaY: wholeY, phase: 0, momentumPhase: 2)
+            if posted {
+                totalOperationsCount += 1
+                momentumPostedFrameCount += 1
+                momentumPostedDeltaY += wholeY
+                momentumPostedWheel1PixelDeltaY += Int((wholeY * 1.5).rounded())
+            } else {
+                momentumPostFailureCount += 1
+            }
+            momentumFrameDiagnostics.append(
+                "f\(momentumInputFrameCount):in=\(String(format: "%.3f", deltaY)),out=\(String(format: "%.0f", wholeY)),wheel1Px=\(Int((wholeY * 1.5).rounded())),post=\(posted),phase=0,momentum=2"
+            )
+        } else {
+            momentumBufferedFrameCount += 1
+            momentumFrameDiagnostics.append(
+                "f\(momentumInputFrameCount):in=\(String(format: "%.3f", deltaY)),out=0,post=buffered,rem=\(String(format: "%.3f", subpixelRemainder)),phase=0,momentum=2"
+            )
+        }
     }
 
     public func end(session: InteractionSession) {
         guard !isCompleted else { return }
         isCompleted = true
-        operations.postScrollWheel(at: anchorPoint, deltaY: 0, phase: 4, momentumPhase: 0)
+        if abs(subpixelRemainder) >= 0.5 {
+            let pendingRemainder = subpixelRemainder
+            let finalDelta = round(subpixelRemainder)
+            subpixelRemainder = 0.0
+            if abs(finalDelta) >= 1.0 {
+                let posted = operations.postScrollWheel(at: anchorPoint, deltaY: finalDelta, phase: 0, momentumPhase: 2)
+                if posted {
+                    totalOperationsCount += 1
+                    momentumPostedFrameCount += 1
+                    momentumPostedDeltaY += finalDelta
+                    momentumPostedWheel1PixelDeltaY += Int((finalDelta * 1.5).rounded())
+                } else {
+                    momentumPostFailureCount += 1
+                }
+                momentumFrameDiagnostics.append(
+                    "tail:in=\(String(format: "%.3f", pendingRemainder)),out=\(String(format: "%.0f", finalDelta)),wheel1Px=\(Int((finalDelta * 1.5).rounded())),post=\(posted),phase=0,momentum=2"
+                )
+            }
+        }
+        let endEventPosted = operations.postScrollWheel(at: anchorPoint, deltaY: 0, phase: 4, momentumPhase: 0)
+        TouchBridgeLogger.info(
+            .semantic,
+            "P3-06R3 cg_momentum_delivery: units=pixel scale=1.5 inputFrames=\(momentumInputFrameCount) bufferedFrames=\(momentumBufferedFrameCount) postedFrames=\(momentumPostedFrameCount) postFailures=\(momentumPostFailureCount) inputDeltaY=\(String(format: "%.2f", momentumInputDeltaY)) postedDeltaY=\(String(format: "%.2f", momentumPostedDeltaY)) postedWheel1Px=\(momentumPostedWheel1PixelDeltaY) endPhase=4,endMomentumPhase=0,endPost=\(endEventPosted) finalRemainder=\(String(format: "%.2f", subpixelRemainder)) frames=[\(momentumFrameDiagnostics.joined(separator: ";"))]"
+        )
 
         let appName = session.context?.applicationName ?? "Application"
         let cursorStr = initialPhysicalCursor.map { "(\(Int($0.x)),\(Int($0.y)))" } ?? "nil"
@@ -313,16 +446,19 @@ public final class TransientPointerScrollBackend: ScrollDeliveryBackend {
                 _ = operations.warpCursor(to: initial)
                 restoreStatus = "RESTORED"
                 TouchBridgeLogger.info(.semantic, "Transient pointer scroll restored cursor to (\(Int(initial.x)), \(Int(initial.y))).")
+                TouchBridgeLogger.info(.semantic, "P3-06R2 cursor_restore: restored exactly_once=true.")
                 session.panActionResult = "COMPATIBILITY_CURSOR_TRANSACTION (TRANSIENT_POINTER_FALLBACK) on [\(appName)]: anchor=(\(Int(anchorPoint.x)),\(Int(anchorPoint.y))), events=\(totalOperationsCount), restored=true"
             } else {
                 physicalMouseInterferenceDetected = (decision == .physicalMouseInterference)
                 restorationSuppressedReason = "\(decision)"
                 restoreStatus = "SUPPRESSED_\(decision)"
                 TouchBridgeLogger.info(.semantic, "Transient pointer scroll restore suppressed: \(decision).")
+                TouchBridgeLogger.info(.semantic, "P3-06R2 cursor_restore: suppressed reason=\(decision).")
                 session.panActionResult = "COMPATIBILITY_CURSOR_TRANSACTION (TRANSIENT_POINTER_FALLBACK) on [\(appName)]: anchor=(\(Int(anchorPoint.x)),\(Int(anchorPoint.y))), events=\(totalOperationsCount), restored=false (\(decision))"
             }
         } else {
             session.panActionResult = "COMPATIBILITY_CURSOR_TRANSACTION (TRANSIENT_POINTER_FALLBACK) on [\(appName)]: anchor=(\(Int(anchorPoint.x)),\(Int(anchorPoint.y))), events=\(totalOperationsCount), no_relocation"
+            TouchBridgeLogger.info(.semantic, "P3-06R2 cursor_restore: no_relocation transaction ended.")
         }
 
         TouchBridgeLogger.info(

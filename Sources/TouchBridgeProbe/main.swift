@@ -22,6 +22,8 @@ func printHelp() {
       --test-architecture Run deterministic P3-04A architecture and P3-04B pointer transaction checks.
       --test-physical-matrix Run live physical acceptance matrix across Finder, TextEdit, Safari, and Brave.
       --request-accessibility  Request macOS Accessibility permission for TouchBridgeProbe, then exit.
+      --permission-status  Print this process's bundle/path/PID and read-only AX trust as JSON, then exit.
+      --permission-status-output <path>  Also write that JSON to a file (for LaunchServices diagnostics).
       --live-diagnostics  Run real-time P3-03R live diagnostic telemetry stream (contacts, speed, backend, seize).
       --scroll-location-probe <centroid|cursor|pid-centroid|pid-cursor|pid-window>  Diagnostic-only scroll routing probe; pid-window is experimental.
       --tap-backend <mode> Select tap delivery: pointer-primary (default) or semantic-only diagnostic. Legacy values semantic and transient-pointer remain accepted.
@@ -358,6 +360,32 @@ func main() {
     if args.contains("--help") || args.contains("-h") {
         printHelp()
         exit(0)
+    }
+
+    // Run before runtime initialization: no HID seizure, event taps, or prompts.
+    if args.contains("--permission-status") {
+        let status: [String: Any] = [
+            "bundleIdentifier": Bundle.main.bundleIdentifier ?? "(unbundled)",
+            "bundlePath": Bundle.main.bundleURL.path,
+            "executablePath": Bundle.main.executableURL?.path ?? args[0],
+            "pid": ProcessInfo.processInfo.processIdentifier,
+            "accessibilityTrusted": AXPermissionManager.shared.isTrusted()
+        ]
+        do {
+            let data = try JSONSerialization.data(withJSONObject: status, options: [.prettyPrinted, .sortedKeys])
+            if let index = args.firstIndex(of: "--permission-status-output") {
+                guard index + 1 < args.count, !args[index + 1].hasPrefix("--") else {
+                    fputs("--permission-status-output requires a file path.\n", stderr)
+                    exit(2)
+                }
+                try data.write(to: URL(fileURLWithPath: args[index + 1]), options: .atomic)
+            }
+            print(String(decoding: data, as: UTF8.self))
+            exit(0)
+        } catch {
+            fputs("Permission diagnostic failed: \(error)\n", stderr)
+            exit(1)
+        }
     }
 
     var tapBackendMode: TapBackendMode = .transientPointer

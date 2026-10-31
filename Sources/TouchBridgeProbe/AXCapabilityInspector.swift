@@ -80,6 +80,37 @@ public struct AXCapabilityInspectionResult: Codable {
     public let scrollCapability: AXScrollCapability
 }
 
+public enum WindowHitZone: String, Codable, Equatable {
+    case resizeEdgeOrCorner = "RESIZE_EDGE_OR_CORNER"
+    case titleBar = "TITLE_BAR"
+    case contentArea = "CONTENT_AREA"
+}
+
+public struct WindowHitInfo: Equatable {
+    public let windowID: CGWindowID
+    public let ownerPID: Int32
+    public let ownerName: String
+    public let windowTitle: String?
+    public let bounds: CGRect
+    public let zone: WindowHitZone
+
+    public init(
+        windowID: CGWindowID,
+        ownerPID: Int32,
+        ownerName: String,
+        windowTitle: String?,
+        bounds: CGRect,
+        zone: WindowHitZone
+    ) {
+        self.windowID = windowID
+        self.ownerPID = ownerPID
+        self.ownerName = ownerName
+        self.windowTitle = windowTitle
+        self.bounds = bounds
+        self.zone = zone
+    }
+}
+
 /// Direct interaction context holding live AXUIElement references for session lifetime.
 public struct AXInteractionContext {
     public let pid: Int32
@@ -91,14 +122,156 @@ public struct AXInteractionContext {
     public let scrollBarElement: AXUIElement?
     public let scrollCapability: AXScrollCapability
     public let scrollAreaHeight: Double
+    public var windowHitInfo: WindowHitInfo?
+
+    public init(
+        pid: Int32,
+        applicationName: String,
+        hitElement: AXUIElement,
+        hitNode: AXNodeCapability,
+        ancestorChain: [AXNodeCapability],
+        scrollAreaElement: AXUIElement?,
+        scrollBarElement: AXUIElement?,
+        scrollCapability: AXScrollCapability,
+        scrollAreaHeight: Double,
+        windowHitInfo: WindowHitInfo? = nil
+    ) {
+        self.pid = pid
+        self.applicationName = applicationName
+        self.hitElement = hitElement
+        self.hitNode = hitNode
+        self.ancestorChain = ancestorChain
+        self.scrollAreaElement = scrollAreaElement
+        self.scrollBarElement = scrollBarElement
+        self.scrollCapability = scrollCapability
+        self.scrollAreaHeight = scrollAreaHeight
+        self.windowHitInfo = windowHitInfo
+    }
+
+    private static let directDragRoles: Set<String> = [
+        "AXSlider",
+        "AXScrollBar",
+        "AXValueIndicator",
+        "AXSplitter",
+        "AXGrowArea",
+        "AXHandle",
+        "AXColorWell"
+    ]
+
+    private static let interactiveToolbarRoles: Set<String> = [
+        "AXButton",
+        "AXRadioButton",
+        "AXCheckBox",
+        "AXPopUpButton",
+        "AXMenuButton",
+        "AXTextField",
+        "AXSearchField",
+        "AXComboBox",
+        "AXSegmentedControl",
+        "AXTabGroup"
+    ]
+
+    private static let textInputRoles: Set<String> = [
+        "AXTextField",
+        "AXTextArea",
+        "AXSearchField",
+        "AXComboBox"
+    ]
+
+    /// True when the hit target is a slider, scrollbar thumb/track, splitter, window resize edge, or window title bar.
+    public var isDirectDragControl: Bool {
+        if Self.directDragRoles.contains(hitNode.role) { return true }
+        if let parentRole = hitNode.parentRole, Self.directDragRoles.contains(parentRole) { return true }
+        if ancestorChain.prefix(2).contains(where: { Self.directDragRoles.contains($0.role) }) { return true }
+        if let zone = windowHitInfo?.zone {
+            if zone == .resizeEdgeOrCorner { return true }
+            if zone == .titleBar && !Self.interactiveToolbarRoles.contains(hitNode.role) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// True when the hit target is an editable text input field.
+    public var isTextInputControl: Bool {
+        if Self.textInputRoles.contains(hitNode.role) { return true }
+        if hitNode.subrole == "AXSearchField" || hitNode.subrole == "AXSecureTextField" { return true }
+        return false
+    }
 }
 
 public final class AXCapabilityInspector {
     public static let shared = AXCapabilityInspector()
     
     private init() {}
+
+    /// Fast WindowServer query (< 0.2ms, no IPC to target app) returning the topmost normal window
+    /// containing `point` (in global CG top-left coordinates), its exact `CGWindowID`, and hit zone.
+    public func resolveTopmostWindow(at point: CGPoint, edgeMarginPt: CGFloat = 7.0, titleBarHeightPt: CGFloat = 28.0) -> WindowHitInfo? {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+            return nil
+        }
+        let selfPID = ProcessInfo.processInfo.processIdentifier
+        for entry in list {
+            guard let layer = entry[kCGWindowLayer as String] as? Int, layer == 0,
+                  let winID = entry[kCGWindowNumber as String] as? UInt32,
+                  let ownerPID = entry[kCGWindowOwnerPID as String] as? Int32,
+                  ownerPID != selfPID,
+                  let boundsDict = entry[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: boundsDict),
+                  bounds.width >= 60, bounds.height >= 40 else {
+                continue
+            }
+            let expandedBounds = bounds.insetBy(dx: -edgeMarginPt, dy: -edgeMarginPt)
+            guard expandedBounds.contains(point) else { continue }
+
+            let ownerName = (entry[kCGWindowOwnerName as String] as? String) ?? "PID \(ownerPID)"
+            let winTitle = entry[kCGWindowName as String] as? String
+
+            let nearLeft = abs(point.x - bounds.minX) <= edgeMarginPt
+            let nearRight = abs(point.x - bounds.maxX) <= edgeMarginPt
+            let nearTop = abs(point.y - bounds.minY) <= edgeMarginPt
+            let nearBottom = abs(point.y - bounds.maxY) <= edgeMarginPt
+
+            let zone: WindowHitZone
+            if (nearLeft || nearRight || nearTop || nearBottom) && bounds.width >= 120 && bounds.height >= 80 {
+                zone = .resizeEdgeOrCorner
+            } else if point.y >= bounds.minY && (point.y - bounds.minY) <= titleBarHeightPt && (point.x - bounds.minX) >= 78.0 {
+                zone = .titleBar
+            } else {
+                zone = .contentArea
+            }
+
+            return WindowHitInfo(
+                windowID: winID,
+                ownerPID: ownerPID,
+                ownerName: ownerName,
+                windowTitle: winTitle,
+                bounds: bounds,
+                zone: zone
+            )
+        }
+        return nil
+    }
+
+    /// Verifies that a previously latched `CGWindowID` is still on screen and owned by `expectedPID`.
+    public func isWindowStillValid(windowID: CGWindowID, expectedPID: Int32? = nil) -> Bool {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+            return false
+        }
+        for entry in list {
+            guard let winID = entry[kCGWindowNumber as String] as? UInt32, winID == windowID else { continue }
+            if let expected = expectedPID,
+               let ownerPID = entry[kCGWindowOwnerPID as String] as? Int32,
+               ownerPID != expected {
+                return false
+            }
+            return true
+        }
+        return false
+    }
     
-    public func discoverContext(element: AXUIElement, maxAncestors: Int = 4) -> AXInteractionContext {
+    public func discoverContext(element: AXUIElement, maxAncestors: Int = 4, atPoint point: CGPoint? = nil) -> AXInteractionContext {
         var pid: pid_t = 0
         AXUIElementGetPid(element, &pid)
         let appName = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "PID \(pid)"
@@ -158,6 +331,7 @@ public final class AXCapabilityInspector {
             sHeight = sz[1]
         }
         
+        let winHit = point.flatMap { resolveTopmostWindow(at: $0) }
         return AXInteractionContext(
             pid: pid,
             applicationName: appName,
@@ -167,7 +341,8 @@ public final class AXCapabilityInspector {
             scrollAreaElement: foundScrollAreaElem,
             scrollBarElement: foundScrollBarElem,
             scrollCapability: scrollCap,
-            scrollAreaHeight: max(100.0, sHeight)
+            scrollAreaHeight: max(100.0, sHeight),
+            windowHitInfo: winHit
         )
     }
     

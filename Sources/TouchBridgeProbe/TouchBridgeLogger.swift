@@ -1,4 +1,5 @@
 import Foundation
+import Cocoa
 
 // MARK: - Structured Lightweight Logger (P3-01 Section 11)
 
@@ -59,6 +60,9 @@ public final class TouchBridgeLogger {
     
     /// Controls whether logs are mirrored to stdout
     public static var printToStdout: Bool = true
+    public static var writeDebugToDisk: Bool = false
+    private static let logFilePath = "/tmp/touchbridge_dev.log"
+    private var persistentFileHandle: FileHandle?
     
     private init() {}
     
@@ -66,7 +70,11 @@ public final class TouchBridgeLogger {
         let entry = LogEntry(category: category, level: level, message: message)
         shared.append(entry)
         
-        if printToStdout {
+        if level != .debug || writeDebugToDisk || shared.onNewEntry != nil {
+            shared.writeToFile(entry.formattedLine + "\n")
+        }
+        
+        if printToStdout && (level != .debug || writeDebugToDisk) {
             print(entry.formattedLine)
             fflush(stdout)
         }
@@ -88,18 +96,33 @@ public final class TouchBridgeLogger {
         log(category, .error, message)
     }
     
-    private func append(_ entry: LogEntry) {
+    private func writeToFile(_ line: String) {
+        guard let data = line.data(using: .utf8) else { return }
         lock.lock()
         defer { lock.unlock() }
-        
+        if persistentFileHandle == nil {
+            if !FileManager.default.fileExists(atPath: Self.logFilePath) {
+                FileManager.default.createFile(atPath: Self.logFilePath, contents: nil, attributes: nil)
+            }
+            persistentFileHandle = FileHandle(forWritingAtPath: Self.logFilePath)
+            persistentFileHandle?.seekToEndOfFile()
+        }
+        persistentFileHandle?.write(data)
+    }
+
+    private func append(_ entry: LogEntry) {
+        lock.lock()
         entries.append(entry)
         if entries.count > maxEntries {
             entries.removeFirst(entries.count - maxEntries)
         }
-        
         let callback = onNewEntry
-        DispatchQueue.main.async {
-            callback?(entry)
+        lock.unlock()
+        
+        if let callback {
+            DispatchQueue.main.async {
+                callback(entry)
+            }
         }
     }
     
@@ -109,6 +132,50 @@ public final class TouchBridgeLogger {
         
         let filtered = (category != nil) ? entries.filter { $0.category == category } : entries
         return Array(filtered.suffix(limit))
+    }
+    
+    public func dumpFormattedEntries() -> String {
+        // Prefer persistent file on disk if it exists; otherwise use in-memory entries
+        if let diskContents = try? String(contentsOfFile: Self.logFilePath, encoding: .utf8), !diskContents.isEmpty {
+            return diskContents
+        }
+        lock.lock()
+        defer { lock.unlock() }
+        return entries.map(\.formattedLine).joined(separator: "\n")
+    }
+
+    @discardableResult
+    public static func exportDiagnosticReportToDesktop() -> URL? {
+        let df = DateFormatter()
+        df.dateFormat = "yyyyMMdd-HHmmss"
+        let timestampStr = df.string(from: Date())
+        let desktopDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Desktop")
+        let fileURL = desktopDir.appendingPathComponent("TouchBridge-Diagnostic-\(timestampStr).txt")
+        
+        let report = """
+        ================================================================================
+        TOUCHBRIDGE DIAGNOSTIC REPORT
+        Timestamp: \(Date())
+        macOS Version: \(ProcessInfo.processInfo.operatingSystemVersionString)
+        Hardware: MacBook Pro 2019 (16-inch, Intel x86_64)
+        Bundle ID: \(Bundle.main.bundleIdentifier ?? "com.antigravity.touchbridge.dev")
+        Bundle Version: \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] ?? "1.0.0") (\(Bundle.main.infoDictionary?["CFBundleVersion"] ?? "Dev"))
+        Accessibility Trusted: \(AXPermissionManager.shared.isTrusted())
+        ================================================================================
+        
+        [RECENT LOG RECORDS]
+        \(shared.dumpFormattedEntries())
+        """
+        
+        do {
+            try report.write(to: fileURL, atomically: true, encoding: .utf8)
+            NSWorkspace.shared.activateFileViewerSelecting([fileURL])
+            TouchBridgeLogger.info(.lifecycle, "Diagnostic report exported to Desktop: \(fileURL.lastPathComponent)")
+            return fileURL
+        } catch {
+            TouchBridgeLogger.error(.lifecycle, "Failed to write diagnostic report: \(error.localizedDescription)")
+            return nil
+        }
     }
     
     public func clear() {

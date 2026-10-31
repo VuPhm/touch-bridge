@@ -45,6 +45,91 @@ public struct AffineMatrix2D: Codable, CustomStringConvertible, Equatable {
         let y = c * u + d * v + ty
         return CGPoint(x: x, y: y)
     }
+
+    /// Mathematically adapts this affine matrix from its calibrated display geometry/orientation
+    /// to a rotated or scaled display geometry of the same physical touch panel.
+    public func adapted(
+        fromWidth sourceWidth: Double,
+        fromHeight sourceHeight: Double,
+        fromRotation sourceRotation: Double,
+        toWidth targetWidth: Double,
+        toHeight targetHeight: Double,
+        toRotation targetRotation: Double,
+        invertQuarterTurnDirection: Bool = false
+    ) -> AffineMatrix2D {
+        guard sourceWidth > 1.0, sourceHeight > 1.0 else { return self }
+        let ua = a / sourceWidth
+        let ub = b / sourceWidth
+        let ut = tx / sourceWidth
+
+        let va = c / sourceHeight
+        let vb = d / sourceHeight
+        let vt = ty / sourceHeight
+
+        let rawDelta = ((Int(targetRotation.rounded()) - Int(sourceRotation.rounded())) % 360 + 360) % 360
+        let delta: Int
+        if invertQuarterTurnDirection && (rawDelta == 90 || rawDelta == 270) {
+            delta = (360 - rawDelta) % 360
+        } else {
+            delta = rawDelta
+        }
+
+        let na: Double, nb: Double, ntx: Double
+        let nc: Double, nd: Double, nty: Double
+
+        switch delta {
+        case 90:
+            // u' = 1 - v0, v' = u0
+            na = -va * targetWidth
+            nb = -vb * targetWidth
+            ntx = (1.0 - vt) * targetWidth
+            nc = ua * targetHeight
+            nd = ub * targetHeight
+            nty = ut * targetHeight
+        case 180:
+            // u' = 1 - u0, v' = 1 - v0
+            na = -ua * targetWidth
+            nb = -ub * targetWidth
+            ntx = (1.0 - ut) * targetWidth
+            nc = -va * targetHeight
+            nd = -vb * targetHeight
+            nty = (1.0 - vt) * targetHeight
+        case 270:
+            // u' = v0, v' = 1 - u0
+            na = va * targetWidth
+            nb = vb * targetWidth
+            ntx = vt * targetWidth
+            nc = -ua * targetHeight
+            nd = -ub * targetHeight
+            nty = (1.0 - ut) * targetHeight
+        default:
+            na = ua * targetWidth
+            nb = ub * targetWidth
+            ntx = ut * targetWidth
+            nc = va * targetHeight
+            nd = vb * targetHeight
+            nty = vt * targetHeight
+        }
+
+        return AffineMatrix2D(a: na, b: nb, tx: ntx, c: nc, d: nd, ty: nty)
+    }
+
+    /// Evaluates independent out-of-sample verification points (e.g. center and edge midpoints)
+    /// against this solved affine matrix without including them in the least-squares fit.
+    public func evaluateVerificationPoints(_ testPoints: [CalibrationPointPair]) -> (errors: [Double], meanError: Double, maxError: Double) {
+        guard !testPoints.isEmpty else { return ([], 0.0, 0.0) }
+        var errors: [Double] = []
+        var sum = 0.0
+        var maxErr = 0.0
+        for pt in testPoints {
+            let pred = transform(u: pt.normalizedSensor.u, v: pt.normalizedSensor.v)
+            let dist = hypot(pred.x - pt.targetLocalCG.x, pred.y - pt.targetLocalCG.y)
+            errors.append(dist)
+            sum += dist
+            if dist > maxErr { maxErr = dist }
+        }
+        return (errors, sum / Double(testPoints.count), maxErr)
+    }
     
     /// Solves linear least-squares affine fit from N >= 3 points.
     /// A = [u_i, v_i, 1]
@@ -186,16 +271,95 @@ public struct CalibrationProfile: Codable, Equatable {
     public let residualErrors: [Double]
     public let meanResidualError: Double
     public let maxResidualError: Double
-    
+    public var verificationPoints: [CalibrationPointPair]? = nil
+    public var verificationErrors: [Double]? = nil
+    public var meanVerificationError: Double? = nil
+    public var maxVerificationError: Double? = nil
+
+    public static var invertQuarterTurnDirection: Bool = false
+
     public static var defaultDirectory: URL {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let dir = home.appendingPathComponent(".touchbridge", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
-    
+
     public static func defaultProfileURL(for displayID: CGDirectDisplayID) -> URL {
         defaultDirectory.appendingPathComponent("calibration_display_\(displayID).json")
+    }
+
+    /// Checks whether this profile belongs to the same physical monitor hardware
+    /// (by DisplayID or by Vendor+Model+Serial/Name when DisplayID changes after replug/sleep).
+    public func matchesHardwareIdentity(of display: DisplayMetadata) -> Bool {
+        if displayID == display.id { return true }
+        if displayVendorNumber != 0 &&
+            displayVendorNumber == display.vendorNumber &&
+            displayModelNumber == display.modelNumber &&
+            (displaySerialNumber == display.serialNumber || displayName == display.name) {
+            return true
+        }
+        return false
+    }
+
+    /// Returns a mathematically adapted profile if the active display is the same physical panel
+    /// rotated by 0°/90°/180°/270° or rebound with a new DisplayID after sleep/wake/replug.
+    public func adapted(for display: DisplayMetadata) -> CalibrationProfile? {
+        guard matchesHardwareIdentity(of: display) else { return nil }
+        let deltaRot = ((Int(display.rotationDegrees.rounded()) - Int(rotationDegrees.rounded())) % 360 + 360) % 360
+        let expectedWidth = (deltaRot == 90 || deltaRot == 270) ? displayHeight : displayWidth
+        let expectedHeight = (deltaRot == 90 || deltaRot == 270) ? displayWidth : displayHeight
+
+        let exactPanelDimensionsMatch = abs(display.cgWidth - expectedWidth) <= 1.0 && abs(display.cgHeight - expectedHeight) <= 1.0
+        guard exactPanelDimensionsMatch else { return nil }
+
+        if display.id == displayID &&
+            deltaRot == 0 &&
+            abs(display.backingScaleFactor - backingScaleFactor) <= 0.01 {
+            return self
+        }
+
+        let adaptedAffine = affineMatrix?.adapted(
+            fromWidth: displayWidth,
+            fromHeight: displayHeight,
+            fromRotation: rotationDegrees,
+            toWidth: display.cgWidth,
+            toHeight: display.cgHeight,
+            toRotation: display.rotationDegrees,
+            invertQuarterTurnDirection: CalibrationProfile.invertQuarterTurnDirection
+        )
+
+        return CalibrationProfile(
+            version: version,
+            createdAt: createdAt,
+            deviceVendorID: deviceVendorID,
+            deviceProductID: deviceProductID,
+            deviceName: deviceName,
+            rawMinX: rawMinX,
+            rawMaxX: rawMaxX,
+            rawMinY: rawMinY,
+            rawMaxY: rawMaxY,
+            displayID: display.id,
+            displayName: display.name,
+            displayVendorNumber: display.vendorNumber,
+            displayModelNumber: display.modelNumber,
+            displaySerialNumber: display.serialNumber,
+            displayWidth: display.cgWidth,
+            displayHeight: display.cgHeight,
+            backingScaleFactor: display.backingScaleFactor,
+            rotationDegrees: display.rotationDegrees,
+            points: points,
+            transformType: transformType,
+            affineMatrix: adaptedAffine,
+            homographyMatrix: homographyMatrix,
+            residualErrors: residualErrors,
+            meanResidualError: meanResidualError,
+            maxResidualError: maxResidualError,
+            verificationPoints: verificationPoints,
+            verificationErrors: verificationErrors,
+            meanVerificationError: meanVerificationError,
+            maxVerificationError: maxVerificationError
+        )
     }
     
     public func save(to url: URL) throws {

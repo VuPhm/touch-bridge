@@ -38,24 +38,37 @@ public final class CalibrationView: NSView {
         fatalError("init(coder:) not implemented")
     }
     
+    private let fitPointCount: Int = 4
+
+    public override var acceptsFirstResponder: Bool { true }
+
+    public override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53 { // Escape
+            delegate?.calibrationDidCancel()
+        } else if (event.keyCode == 36 || event.keyCode == 49) && capturedPoints.count >= fitPointCount { // Return or Space
+            solveAndComplete()
+        } else {
+            super.keyDown(with: event)
+        }
+    }
+
     private func setupTargets() {
         let w = Double(bounds.width)
         let h = Double(bounds.height)
+        let edgeInset = 32.0
         
-        // 4 Calibration Points in strict clockwise order from top-left:
-        // 1. Top-Left
-        // 2. Top-Right
-        // 3. Bottom-Right
-        // 4. Bottom-Left
+        // 4 Calibration Fit Points (corners) + 2 Out-of-Sample Verification Points (Center + Near-Edge):
         targetPointsLocalCG = [
-            ("Top-Left (Point 1/4)", CGPoint(x: inset, y: inset)),
-            ("Top-Right (Point 2/4)", CGPoint(x: w - inset, y: inset)),
-            ("Bottom-Right (Point 3/4)", CGPoint(x: w - inset, y: h - inset)),
-            ("Bottom-Left (Point 4/4)", CGPoint(x: inset, y: h - inset))
+            ("Top-Left Fit (Point 1/6)", CGPoint(x: inset, y: inset)),
+            ("Top-Right Fit (Point 2/6)", CGPoint(x: w - inset, y: inset)),
+            ("Bottom-Right Fit (Point 3/6)", CGPoint(x: w - inset, y: h - inset)),
+            ("Bottom-Left Fit (Point 4/6)", CGPoint(x: inset, y: h - inset)),
+            ("Center Verify (Point 5/6)", CGPoint(x: w * 0.5, y: h * 0.5)),
+            ("Near-Edge Verify (Point 6/6)", CGPoint(x: w * 0.5, y: edgeInset))
         ]
         currentPointIndex = 0
         capturedPoints.removeAll()
-        statusMessage = "Touch and release \(targetPointsLocalCG[0].label)"
+        statusMessage = "Touch and release \(targetPointsLocalCG[0].label) [ESC to cancel]"
     }
     
     public func handleTouchSample(_ sample: TouchSample) {
@@ -125,10 +138,11 @@ public final class CalibrationView: NSView {
         activeTouchSamples.removeAll()
         
         if currentPointIndex < targetPointsLocalCG.count {
-            statusMessage = "Touch and release \(targetPointsLocalCG[currentPointIndex].label)"
+            let suffix = currentPointIndex >= fitPointCount ? " [Press Return to finish now]" : ""
+            statusMessage = "Touch and release \(targetPointsLocalCG[currentPointIndex].label)\(suffix)"
             needsDisplay = true
         } else {
-            // All 4 points captured! Solve transform
+            // All fit + verification points captured! Solve transform and evaluate verification
             solveAndComplete()
         }
     }
@@ -137,22 +151,35 @@ public final class CalibrationView: NSView {
         statusMessage = "Solving 4-point calibration transform..."
         needsDisplay = true
         
-        guard let fit = AffineMatrix2D.solveLeastSquares(points: capturedPoints) else {
+        let fitPoints = Array(capturedPoints.prefix(fitPointCount))
+        let verifyPoints = capturedPoints.count > fitPointCount ? Array(capturedPoints.dropFirst(fitPointCount)) : []
+        
+        guard let fit = AffineMatrix2D.solveLeastSquares(points: fitPoints) else {
             statusMessage = "[ERROR] Failed to solve calibration. Determinant error."
             needsDisplay = true
             return
         }
         
+        let verifyMetrics = fit.matrix.evaluateVerificationPoints(verifyPoints)
+        
         print("\n=======================================================")
         print("           CALIBRATION FIT RESULTS (AFFINE)            ")
         print("=======================================================")
         print(fit.matrix.description)
-        print("Residual Errors per point:")
+        print("Residual Errors per fit point:")
         for (i, r) in fit.residuals.enumerated() {
-            print(String(format: "  Point %d [%-24@]: residual = %6.2f pt", i + 1, capturedPoints[i].label, r))
+            print(String(format: "  Point %d [%-24@]: residual = %6.2f pt", i + 1, fitPoints[i].label, r))
         }
-        print(String(format: "Mean Residual Error: %.2f pt", fit.meanResidual))
-        print(String(format: "Max Residual Error:  %.2f pt", fit.maxResidual))
+        print(String(format: "Mean Fit Residual Error: %.2f pt", fit.meanResidual))
+        print(String(format: "Max Fit Residual Error:  %.2f pt", fit.maxResidual))
+        if !verifyPoints.isEmpty {
+            print("Out-of-Sample Verification Errors (Center & Edge):")
+            for (i, r) in verifyMetrics.errors.enumerated() {
+                print(String(format: "  Verify %d [%-23@]: error    = %6.2f pt", i + 1, verifyPoints[i].label, r))
+            }
+            print(String(format: "Mean Verification Error: %.2f pt", verifyMetrics.meanError))
+            print(String(format: "Max Verification Error:  %.2f pt", verifyMetrics.maxError))
+        }
         print("=======================================================\n")
         
         let profile = CalibrationProfile(
@@ -170,13 +197,17 @@ public final class CalibrationView: NSView {
             displayHeight: targetDisplay.cgHeight,
             backingScaleFactor: targetDisplay.backingScaleFactor,
             rotationDegrees: targetDisplay.rotationDegrees,
-            points: capturedPoints,
+            points: fitPoints,
             transformType: "affine",
             affineMatrix: fit.matrix,
             homographyMatrix: nil,
             residualErrors: fit.residuals,
             meanResidualError: fit.meanResidual,
-            maxResidualError: fit.maxResidual
+            maxResidualError: fit.maxResidual,
+            verificationPoints: verifyPoints.isEmpty ? nil : verifyPoints,
+            verificationErrors: verifyPoints.isEmpty ? nil : verifyMetrics.errors,
+            meanVerificationError: verifyPoints.isEmpty ? nil : verifyMetrics.meanError,
+            maxVerificationError: verifyPoints.isEmpty ? nil : verifyMetrics.maxError
         )
         
         // Save profile

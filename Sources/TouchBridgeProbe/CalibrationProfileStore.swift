@@ -13,20 +13,39 @@ public final class CalibrationProfileStore {
         return dir
     }
     
-    public static func profileURL(for displayID: CGDirectDisplayID) -> URL {
-        authoritativeDirectory.appendingPathComponent("calibration_display_\(displayID).json")
+    public static func profileURL(for displayID: CGDirectDisplayID, rotationDegrees: Double? = nil) -> URL {
+        if let rot = rotationDegrees {
+            let deg = ((Int(rot.rounded()) % 360) + 360) % 360
+            if deg != 0 {
+                return authoritativeDirectory.appendingPathComponent("calibration_display_\(displayID)_rot\(deg).json")
+            }
+        }
+        return authoritativeDirectory.appendingPathComponent("calibration_display_\(displayID).json")
     }
     
     private init() {}
     
-    /// Loads the authoritative profile for the given display ID.
+    /// Loads the authoritative profile for the given display ID (and optional display metadata for rotation / hardware identity fallback).
     /// Falls back to local directory `TouchBridgeCalibration.json` if not yet migrated.
-    public func loadProfile(for displayID: CGDirectDisplayID, customPath: String? = nil) -> CalibrationProfile? {
+    public func loadProfile(
+        for displayID: CGDirectDisplayID,
+        targetDisplay: DisplayMetadata? = nil,
+        customPath: String? = nil
+    ) -> CalibrationProfile? {
         if let custom = customPath {
             let customURL = URL(fileURLWithPath: custom)
             if let prof = try? CalibrationProfile.load(from: customURL) {
                 TouchBridgeLogger.info(.calibration, "Loaded custom calibration profile from: \(customURL.path)")
                 return prof
+            }
+        }
+
+        if let disp = targetDisplay {
+            let rotURL = CalibrationProfileStore.profileURL(for: displayID, rotationDegrees: disp.rotationDegrees)
+            if FileManager.default.fileExists(atPath: rotURL.path),
+               let rotProf = try? CalibrationProfile.load(from: rotURL) {
+                TouchBridgeLogger.debug(.calibration, "Loaded orientation-specific profile from: \(rotURL.path)")
+                return rotProf
             }
         }
         
@@ -39,10 +58,22 @@ public final class CalibrationProfileStore {
         // Workspace fallback / migration check
         let cwdURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("TouchBridgeCalibration.json")
         if let fallback = try? CalibrationProfile.load(from: cwdURL) {
-            if fallback.displayID == displayID {
+            if fallback.displayID == displayID || (targetDisplay != nil && fallback.matchesHardwareIdentity(of: targetDisplay!)) {
                 TouchBridgeLogger.info(.calibration, "Migrating workspace calibration profile to authoritative store: \(authURL.path)")
                 try? fallback.save(to: authURL)
                 return fallback
+            }
+        }
+
+        // Hardware-identity fallback across DisplayID changes (e.g. different USB-C port or sleep/wake re-enumeration)
+        if let disp = targetDisplay,
+           let files = try? FileManager.default.contentsOfDirectory(at: CalibrationProfileStore.authoritativeDirectory, includingPropertiesForKeys: nil) {
+            for url in files where url.pathExtension == "json" && url.lastPathComponent.hasPrefix("calibration_display_") {
+                if let candidate = try? CalibrationProfile.load(from: url),
+                   candidate.matchesHardwareIdentity(of: disp) {
+                    TouchBridgeLogger.info(.calibration, "Matched calibration profile \(url.lastPathComponent) by hardware identity (Vendor=0x\(String(format: "%04X", disp.vendorNumber)), Model=0x\(String(format: "%04X", disp.modelNumber)), Serial=\(disp.serialNumber))")
+                    return candidate
+                }
             }
         }
         
@@ -53,6 +84,10 @@ public final class CalibrationProfileStore {
     public func saveProfile(_ profile: CalibrationProfile) throws {
         let authURL = CalibrationProfileStore.profileURL(for: profile.displayID)
         try profile.save(to: authURL)
+        let rotURL = CalibrationProfileStore.profileURL(for: profile.displayID, rotationDegrees: profile.rotationDegrees)
+        if rotURL != authURL {
+            try? profile.save(to: rotURL)
+        }
         TouchBridgeLogger.info(.calibration, "Saved calibration profile to authoritative store: \(authURL.path) (Mean error: \(String(format: "%.2f", profile.meanResidualError)) pt)")
         
         // Also sync local workspace file for development consistency
@@ -81,7 +116,14 @@ public final class CalibrationProfileStore {
             return .stale(reason: "HID Device mismatch (Profile: 0x\(String(format: "%04X", prof.deviceVendorID)):0x\(String(format: "%04X", prof.deviceProductID)), Active: 0x\(String(format: "%04X", targetDeviceVID)):0x\(String(format: "%04X", targetDevicePID)))")
         }
         
-        // 2. Display identity check
+        // 2. Display identity check (allow hardware vendor/model/serial match if DisplayID changed, or automatic rotation adaptation)
+        if let adaptedProfile = prof.adapted(for: disp) {
+            if adaptedProfile != prof {
+                TouchBridgeLogger.info(.calibration, "Adapted calibration profile from \(Int(prof.displayWidth))x\(Int(prof.displayHeight)) @ \(Int(prof.rotationDegrees))° (#\(prof.displayID)) to \(Int(disp.cgWidth))x\(Int(disp.cgHeight)) @ \(Int(disp.rotationDegrees))° (#\(disp.id))")
+            }
+            return .valid(profile: adaptedProfile)
+        }
+
         if prof.displayID != disp.id {
             return .stale(reason: "Display ID mismatch (Profile: #\(prof.displayID), Active: #\(disp.id))")
         }

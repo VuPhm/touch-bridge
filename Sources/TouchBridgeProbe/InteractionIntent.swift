@@ -1,18 +1,24 @@
 import Foundation
 import CoreGraphics
 
-/// Output of gesture arbitration. Intents describe what happened without
-/// selecting an operating-system delivery mechanism.
+/// Explicit recognizer-to-router gesture outcomes.
 public enum InteractionIntent {
     case tap(InteractionSession)
-    case cancelledOneFingerMovement(InteractionSession, reason: String)
+    case pairedSecondTap(InteractionSession)
+    case contextMenu(InteractionSession)
+    case dragStarted(InteractionSession)
+    case dragUpdated(InteractionSession, currentPoint: CGPoint, deltaPixels: CGVector)
+    case dragEnded(InteractionSession, endPoint: CGPoint)
     case directPanStarted(InteractionSession)
-    case directPanUpdated(InteractionSession, deltaPixels: CGVector)
     case directPanAXValueUpdated(InteractionSession, targetValue: Double)
+    case directPanUpdated(InteractionSession, deltaPixels: CGVector)
     case directPanEnded(InteractionSession)
     case momentumStarted(InteractionSession, initialVelocity: CGVector)
     case momentumInterrupted(InteractionSession)
+    case magnifyUpdated(InteractionSession, phase: Int64, magnification: Double)
+    case rotateUpdated(InteractionSession, phase: Int64, rotationDegrees: Double)
     case unsupportedPan(InteractionSession)
+    case cancelledOneFingerMovement(InteractionSession, reason: String)
     case cancelled(InteractionSession, reason: String)
 }
 
