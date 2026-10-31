@@ -1,6 +1,6 @@
 import Cocoa
 
-// MARK: - Native Menu-Bar Surface (P3-01 Section 7)
+// MARK: - Native Menu-Bar Surface (P3-01 Section 7 & Production Polish)
 
 public protocol MenuBarActionDelegate: AnyObject {
     func menuBarDidToggleEnabled()
@@ -17,22 +17,19 @@ public final class MenuBarController: NSObject {
     private var statusItem: NSStatusItem?
     private let menu = NSMenu()
     
-    // Status items in menu
-    private let titleItem = NSMenuItem(title: "TouchBridge Prototype", action: nil, keyEquivalent: "")
-    private let deviceItem = NSMenuItem(title: "Touchscreen: Checking…", action: nil, keyEquivalent: "")
-    private let displayItem = NSMenuItem(title: "Display: Checking…", action: nil, keyEquivalent: "")
-    private let calibrationItem = NSMenuItem(title: "Calibration: Checking…", action: nil, keyEquivalent: "")
-    private let accessibilityItem = NSMenuItem(title: "Accessibility: Checking…", action: nil, keyEquivalent: "")
-    private let engineItem = NSMenuItem(title: "Touch Engine: Initializing…", action: nil, keyEquivalent: "")
+    // Header & Status
+    private let headerItem = NSMenuItem(title: "TouchBridge", action: nil, keyEquivalent: "")
+    private let statusSummaryItem = NSMenuItem(title: "Trạng thái: Đang kiểm tra…", action: nil, keyEquivalent: "")
+    private let displaySummaryItem = NSMenuItem(title: "Màn hình: Đang kiểm tra…", action: nil, keyEquivalent: "")
     
-    // Action items
-    private let enableToggleItem = NSMenuItem(title: "Enable Touch", action: #selector(toggleEnableAction), keyEquivalent: "e")
-    private let calibrateItem = NSMenuItem(title: "Calibrate Touchscreen…", action: #selector(calibrateAction), keyEquivalent: "c")
-    private let diagnosticsItem = NSMenuItem(title: "Diagnostics…", action: #selector(diagnosticsAction), keyEquivalent: "d")
-    private let testbedItem = NSMenuItem(title: "Arbitration Testbed…", action: #selector(testbedAction), keyEquivalent: "t")
-    private let settingsItem = NSMenuItem(title: "Status & Settings…", action: #selector(settingsAction), keyEquivalent: ",")
-    private let grantAXItem = NSMenuItem(title: "Grant Accessibility Permission…", action: #selector(grantAXAction), keyEquivalent: "")
-    private let quitItem = NSMenuItem(title: "Quit TouchBridge", action: #selector(quitAction), keyEquivalent: "q")
+    // Quick Actions
+    private let toggleTouchItem = NSMenuItem(title: "Bật cảm ứng", action: #selector(toggleEnableAction), keyEquivalent: "e")
+    private let calibrateItem = NSMenuItem(title: "Hiệu chuẩn màn hình…", action: #selector(calibrateAction), keyEquivalent: "c")
+    private let settingsItem = NSMenuItem(title: "Cài đặt…", action: #selector(settingsAction), keyEquivalent: ",")
+    private let keyboardItem = NSMenuItem(title: "Bàn phím ảo macOS…", action: #selector(toggleKeyboardAction), keyEquivalent: "k")
+    private let exportReportItem = NSMenuItem(title: "Xuất báo cáo chẩn đoán ra Desktop…", action: #selector(exportReportAction), keyEquivalent: "")
+    private let grantAXItem = NSMenuItem(title: "⚠️ Cấp quyền Trợ năng (Accessibility)…", action: #selector(grantAXAction), keyEquivalent: "")
+    private let quitItem = NSMenuItem(title: "Thoát TouchBridge", action: #selector(quitAction), keyEquivalent: "q")
     
     public override init() {
         super.init()
@@ -44,9 +41,8 @@ public final class MenuBarController: NSObject {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = item.button {
             button.image = createStatusBarIcon(isOperational: false)
-            button.imagePosition = .imageLeft
-            button.title = " TB"
-            button.toolTip = "TouchBridge — Native Touchscreen Bridge"
+            button.imagePosition = .imageOnly
+            button.toolTip = "TouchBridge"
         }
         item.menu = menu
         self.statusItem = item
@@ -55,42 +51,44 @@ public final class MenuBarController: NSObject {
     private func buildMenu() {
         menu.removeAllItems()
         
-        // Header
-        titleItem.attributedTitle = NSAttributedString(
-            string: "TouchBridge (P3-01 Runtime)",
+        // App Header
+        let versionStr = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
+        headerItem.attributedTitle = NSAttributedString(
+            string: "TouchBridge (\(versionStr))",
             attributes: [.font: NSFont.boldSystemFont(ofSize: 13)]
         )
-        titleItem.isEnabled = false
-        menu.addItem(titleItem)
+        headerItem.isEnabled = false
+        menu.addItem(headerItem)
         menu.addItem(NSMenuItem.separator())
         
-        // State Information Hierarchy
-        for item in [deviceItem, displayItem, calibrationItem, accessibilityItem, engineItem] {
-            item.isEnabled = false
-            menu.addItem(item)
-        }
+        // Concise Status
+        statusSummaryItem.isEnabled = false
+        menu.addItem(statusSummaryItem)
+        displaySummaryItem.isEnabled = false
+        menu.addItem(displaySummaryItem)
+        
+        // Quick Grant Permission if missing
+        grantAXItem.target = self
+        grantAXItem.isHidden = true
+        menu.addItem(grantAXItem)
         
         menu.addItem(NSMenuItem.separator())
         
-        // Actions
-        enableToggleItem.target = self
-        menu.addItem(enableToggleItem)
+        // Primary Actions
+        toggleTouchItem.target = self
+        menu.addItem(toggleTouchItem)
         
         calibrateItem.target = self
         menu.addItem(calibrateItem)
         
-        diagnosticsItem.target = self
-        menu.addItem(diagnosticsItem)
-        
-        testbedItem.target = self
-        menu.addItem(testbedItem)
-        
         settingsItem.target = self
         menu.addItem(settingsItem)
         
-        grantAXItem.target = self
-        grantAXItem.isHidden = true
-        menu.addItem(grantAXItem)
+        keyboardItem.target = self
+        menu.addItem(keyboardItem)
+        
+        exportReportItem.target = self
+        menu.addItem(exportReportItem)
         
         menu.addItem(NSMenuItem.separator())
         
@@ -99,59 +97,42 @@ public final class MenuBarController: NSObject {
     }
     
     public func update(with snapshot: RuntimeSnapshot) {
-        // 1. Device Item
-        let devIcon: String
-        switch snapshot.device {
-        case .available: devIcon = "🟢"
-        case .detected: devIcon = "🟡"
-        case .disconnected: devIcon = "⚪️"
-        case .unavailableBusy, .error: devIcon = "🔴"
+        // Status Summary
+        if snapshot.accessibility != .available {
+            statusSummaryItem.title = "  🔴 Trợ năng: Chưa cấp quyền"
+            grantAXItem.isHidden = false
+        } else if !snapshot.isUserEnabled {
+            statusSummaryItem.title = "  ⚪️ Cảm ứng: Đang tắt"
+            grantAXItem.isHidden = true
+        } else if snapshot.device == .disconnected {
+            statusSummaryItem.title = "  🟡 Thiết bị: Chưa cắm màn cảm ứng"
+            grantAXItem.isHidden = true
+        } else if snapshot.calibration == .missing {
+            statusSummaryItem.title = "  🟡 Hiệu chuẩn: Cần hiệu chuẩn"
+            grantAXItem.isHidden = true
+        } else {
+            statusSummaryItem.title = "  🟢 Cảm ứng: Sẵn sàng hoạt động"
+            grantAXItem.isHidden = true
         }
-        deviceItem.title = "  \(devIcon) Touchscreen:   \(snapshot.device.description)"
         
-        // 2. Display Item
-        let dispIcon: String
-        switch snapshot.display {
-        case .bound: dispIcon = "🟢"
-        case .targetDetected: dispIcon = "🟡"
-        case .targetMissing: dispIcon = "⚪️"
-        case .configurationChanged: dispIcon = "🔴"
+        // Display Summary
+        if let disp = snapshot.display.boundDisplay {
+            let rotStr = disp.rotationDegrees > 0 ? " @ \(Int(disp.rotationDegrees))°" : ""
+            displaySummaryItem.title = "  🖥 Màn hình: \(disp.name) (\(Int(disp.cgWidth))×\(Int(disp.cgHeight))\(rotStr))"
+            displaySummaryItem.isHidden = false
+        } else {
+            displaySummaryItem.title = "  🖥 Màn hình: Chưa kết nối màn ngoài"
         }
-        displayItem.title = "  \(dispIcon) Display:           \(snapshot.display.description)"
         
-        // 3. Calibration Item
-        let calIcon: String
-        switch snapshot.calibration {
-        case .valid: calIcon = "🟢"
-        case .calibrating: calIcon = "🟡"
-        case .missing: calIcon = "⚪️"
-        case .stale: calIcon = "🔴"
-        }
-        calibrationItem.title = "  \(calIcon) Calibration:      \(snapshot.calibration.description)"
+        // Toggle item text & state
+        toggleTouchItem.title = snapshot.isUserEnabled ? "Tắt cảm ứng" : "Bật cảm ứng"
+        toggleTouchItem.state = snapshot.isUserEnabled ? .on : .off
         
-        // 4. Accessibility Item
-        let axIcon = snapshot.accessibility == .available ? "🟢" : "🔴"
-        accessibilityItem.title = "  \(axIcon) Accessibility:   \(snapshot.accessibility.description)"
-        grantAXItem.isHidden = (snapshot.accessibility == .available)
-        
-        // 5. Engine Item
-        let engIcon: String
-        switch snapshot.engine {
-        case .ready: engIcon = "🟢"
-        case .active: engIcon = "🟢"
-        case .disabled: engIcon = "⚪️"
-        case .suspended, .error: engIcon = "🟡"
-        }
-        engineItem.title = "  \(engIcon) Touch Engine:  \(snapshot.engine.description)"
-        
-        // 6. Enable Toggle Item
-        enableToggleItem.state = snapshot.isUserEnabled ? .on : .off
-        enableToggleItem.title = snapshot.isUserEnabled ? "Touch Enabled" : "Touch Disabled"
-        
-        // 7. Update status bar icon
+        // Update status bar icon
         if let button = statusItem?.button {
-            button.image = createStatusBarIcon(isOperational: snapshot.engine.isOperational)
-            button.toolTip = "TouchBridge: \(snapshot.engine.description)"
+            button.image = createStatusBarIcon(isOperational: snapshot.engine.isOperational && snapshot.isUserEnabled)
+            let statusText = snapshot.isUserEnabled ? (snapshot.engine.isOperational ? "Đang hoạt động" : "Tạm dừng") : "Đang tắt"
+            button.toolTip = "TouchBridge: \(statusText)"
         }
     }
     
@@ -163,18 +144,19 @@ public final class MenuBarController: NSObject {
         let bounds = NSRect(origin: .zero, size: size)
         let center = CGPoint(x: bounds.midX, y: bounds.midY)
         
-        // Outer ring
-        let circlePath = NSBezierPath(ovalIn: bounds.insetBy(dx: 2.5, dy: 2.5))
-        circlePath.lineWidth = 1.6
+        // Outer display bezel
+        let screenRect = bounds.insetBy(dx: 2.0, dy: 3.0)
+        let screenPath = NSBezierPath(roundedRect: screenRect, xRadius: 2.5, yRadius: 2.5)
+        screenPath.lineWidth = 1.4
         if isOperational {
             NSColor.controlAccentColor.setStroke()
         } else {
             NSColor.secondaryLabelColor.setStroke()
         }
-        circlePath.stroke()
+        screenPath.stroke()
         
-        // Center crosshair / touch target dot
-        let dotRect = NSRect(x: center.x - 2.5, y: center.y - 2.5, width: 5.0, height: 5.0)
+        // Center touch point / contact dot
+        let dotRect = NSRect(x: center.x - 2.0, y: center.y - 2.0, width: 4.0, height: 4.0)
         let dotPath = NSBezierPath(ovalIn: dotRect)
         if isOperational {
             NSColor.controlAccentColor.setFill()
@@ -198,16 +180,16 @@ public final class MenuBarController: NSObject {
         actionDelegate?.menuBarDidRequestCalibration()
     }
     
-    @objc private func diagnosticsAction() {
-        actionDelegate?.menuBarDidRequestDiagnostics()
-    }
-    
-    @objc private func testbedAction() {
-        ArbitrationTestWindowController.shared.showTestWindow()
-    }
-    
     @objc private func settingsAction() {
         actionDelegate?.menuBarDidRequestSettings()
+    }
+    
+    @objc private func toggleKeyboardAction() {
+        OnScreenKeyboardController.shared.toggleOnScreenKeyboard()
+    }
+    
+    @objc private func exportReportAction() {
+        TouchBridgeLogger.exportDiagnosticReportToDesktop()
     }
     
     @objc private func grantAXAction() {
