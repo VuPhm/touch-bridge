@@ -419,6 +419,27 @@ func main() {
         exit(report.allPassed ? 0 : 1)
     }
     
+    if args.contains("--preview-settings") {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.regular)
+        _ = TouchBridgeRuntime.shared.start()
+        let tabIdx: Int
+        if let idx = args.firstIndex(of: "--tab"), idx + 1 < args.count, let t = Int(args[idx + 1]) {
+            tabIdx = t
+        } else {
+            tabIdx = 0
+        }
+        StatusSettingsWindowController.shared.showWindowToFront()
+        StatusSettingsWindowController.shared.selectTab(index: tabIdx)
+        if let dIdx = args.firstIndex(of: "--duration"), dIdx + 1 < args.count, let d = Double(args[dIdx + 1]) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + d) {
+                app.terminate(nil)
+            }
+        }
+        app.run()
+        return
+    }
+    
     let liveDiagnostics = args.contains("--live-diagnostics") || args.contains("--diagnostics")
     if args.contains("--request-accessibility") && !liveDiagnostics {
         requestAccessibilityPermissionFromCLI()

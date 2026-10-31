@@ -29,7 +29,7 @@ Uses a persistent Keychain signing identity; never falls back to ad-hoc signing.
 On first use, selects the sole valid identity (preferring TouchBridge Dev Local Signing).
 To choose explicitly, set TOUCHBRIDGE_SIGNING_IDENTITY to its 40-character SHA-1.
 The successful choice is pinned in ~/Library/Application Support/TouchBridge/Development/.
-See DEVELOPMENT_SIGNING.md for local certificate setup and permission diagnostics.
+See docs/research/DEVELOPMENT_SIGNING.md for local certificate setup and permission diagnostics.
 HELP
             exit 0 ;;
         *) fail "Unknown option: $arg" ;;
@@ -53,7 +53,7 @@ if [ -z "$SIGNING_IDENTITY" ]; then
         CANDIDATES="$(printf '%s\n' "$IDENTITIES" | awk '/^[[:space:]]*[0-9]+\)/ {print $2}')"
     fi
     [ "$(printf '%s\n' "$CANDIDATES" | awk 'NF {n++} END {print n+0}')" = 1 ] ||
-        fail "Choose a persistent signing identity. Run security find-identity -v -p codesigning; see DEVELOPMENT_SIGNING.md."
+        fail "Choose a persistent signing identity. Run security find-identity -v -p codesigning; see docs/research/DEVELOPMENT_SIGNING.md."
     SIGNING_IDENTITY="$CANDIDATES"
 fi
 [[ "$SIGNING_IDENTITY" =~ ^[[:xdigit:]]{40}$ ]] || fail "Signing identity must be a certificate SHA-1, not '-' or a name."
@@ -61,9 +61,20 @@ SIGNING_IDENTITY="$(printf '%s' "$SIGNING_IDENTITY" | tr '[:lower:]' '[:upper:]'
 printf '%s\n' "$IDENTITIES" | awk -v hash="$SIGNING_IDENTITY" '$2 == hash {found=1} END {exit !found}' ||
     fail "Pinned identity $SIGNING_IDENTITY is unavailable. Unlock the Keychain or restore that identity; installed app is untouched."
 
+VERSION_FILE="${REPO_ROOT}/VERSION"
+if [ -f "$VERSION_FILE" ]; then
+    APP_VERSION="$(cat "$VERSION_FILE" | tr -d '[:space:]')"
+else
+    APP_VERSION="1.0.0"
+fi
 GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo dev)"
+GIT_DIRTY=""
+if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+    GIT_DIRTY="-dirty"
+fi
+COMMIT_IDENTIFIER="${GIT_SHA}${GIT_DIRTY}"
 BUILD_TIMESTAMP="$(date -u '+%Y%m%d%H%M%S')"
-VERSION_STRING="1.0.0 (${GIT_SHA})"
+VERSION_STRING="${APP_VERSION} (${COMMIT_IDENTIFIER})"
 mkdir -p "$BUILD_DIR"
 STAGE="$(mktemp -d "${BUILD_DIR}/.stage.XXXXXX")"
 INSTALL_STAGE=""
@@ -90,8 +101,10 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
     <key>CFBundleName</key><string>TouchBridge</string>
     <key>CFBundleDisplayName</key><string>TouchBridge</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>${VERSION_STRING}</string>
+    <key>CFBundleShortVersionString</key><string>${APP_VERSION}</string>
     <key>CFBundleVersion</key><string>${BUILD_TIMESTAMP}</string>
+    <key>CFBundleGetInfoString</key><string>TouchBridge ${APP_VERSION} (${COMMIT_IDENTIFIER})</string>
+    <key>TouchBridgeCommit</key><string>${COMMIT_IDENTIFIER}</string>
     <key>LSMinimumSystemVersion</key><string>12.0</string>
     <key>LSUIElement</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>
@@ -135,7 +148,7 @@ if [ "$INSTALL_REQUESTED" = true ]; then
         OLD_REQUIREMENT="$(codesign -d -r- "$INSTALLED_APP" 2>&1 | sed -n 's/^designated => //p')"
         if [ -n "$OLD_REQUIREMENT" ] && [[ "$OLD_REQUIREMENT" != *cdhash* ]]; then
             codesign --verify --strict -R "=$OLD_REQUIREMENT" "$INSTALL_STAGE/$BUNDLE_NAME" ||
-                fail "New app does not satisfy the installed app's identity. See DEVELOPMENT_SIGNING.md; installed copy preserved."
+                fail "New app does not satisfy the installed app's identity. See docs/research/DEVELOPMENT_SIGNING.md; installed copy preserved."
         else
             echo "One-time migration from ad-hoc signing: macOS may require re-authorizing this installed app."
         fi
@@ -160,9 +173,17 @@ echo "Designated requirement: $REQUIREMENT"
 echo "Built: $BUILD_DIR/$BUNDLE_NAME"
 if [ "$INSTALL_REQUESTED" = true ]; then
     echo "Installed: $INSTALLED_APP"
-    ZIP_ARCHIVE="${BUILD_DIR}/TouchBridge-v1.0.0.zip"
+    ARCH="$(uname -m)"
+    ZIP_ARCHIVE="${BUILD_DIR}/TouchBridge-v${APP_VERSION}-macOS-${ARCH}.zip"
     ditto -c -k --sequesterRsrc --keepParent "$INSTALLED_APP" "$ZIP_ARCHIVE"
     echo "Archive: $ZIP_ARCHIVE"
+    (cd "$BUILD_DIR" && shasum -a 256 "$(basename "$ZIP_ARCHIVE")" > SHA256SUMS)
+    if [ "$ARCH" = "x86_64" ]; then
+        INTEL_ARCHIVE="${BUILD_DIR}/TouchBridge-v${APP_VERSION}-macOS-intel.zip"
+        cp -f "$ZIP_ARCHIVE" "$INTEL_ARCHIVE"
+        (cd "$BUILD_DIR" && shasum -a 256 "$(basename "$INTEL_ARCHIVE")" >> SHA256SUMS)
+        echo "Intel Archive: $INTEL_ARCHIVE"
+    fi
     if [ "$RESTART" = true ]; then open "$INSTALLED_APP"; fi
     echo "Launch: open \"$INSTALLED_APP\""
 else

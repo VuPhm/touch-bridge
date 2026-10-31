@@ -4,7 +4,6 @@
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/VuPhm/touch-bridge/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%2013%2B-lightgrey.svg)](https://www.apple.com/macos/)
 [![Architecture](https://img.shields.io/badge/arch-x86__64%20%7C%20arm64-informational.svg)](https://github.com/VuPhm/touch-bridge)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 **TouchBridge** là tiện ích macOS native nhẹ, hiệu năng cao giúp biến màn hình phụ cảm ứng USB-C thành bề mặt thao tác trực tiếp mượt mà như máy tính bảng hoặc iPad Sidecar trên macOS.
 
@@ -31,15 +30,15 @@ Dự án sinh ra từ nhu cầu thực tế: mang lại trải nghiệm cảm �
 
 | Thành phần | Cấu hình kiểm chứng thực tế | Ghi chú |
 | :--- | :--- | :--- |
-| **Máy tính** | MacBook Pro 2019, 16-inch, Intel Core i7 (`x86_64`), RAM 16 GB | Hoàn toàn tương thích kiến trúc Intel và Apple Silicon |
+| **Máy tính** | MacBook Pro 2019, 16-inch, Intel Core i7 (`x86_64`), RAM 16 GB | Môi trường thử nghiệm vật lý thực tế |
 | **Hệ điều hành** | macOS Sonoma 14.8.9 (Darwin 23.6.0) | Hỗ trợ macOS 13 Ventura trở lên |
 | **Màn hình ngoài** | Portable Display `TYPE C` (DisplayID: `79846407`) | Độ phân giải 960 × 1280 (xoay đứng 270°) và 1280 × 960 |
 | **Bộ điều khiển cảm ứng** | `USB2IIC_CTP_CONTROL` (VendorID: `0x1A86`, ProductID: `0xE5E3`) | Digitizer USB HID IIC |
 
 > [!NOTE]
-> **Khả năng tương thích thiết bị**:
-> - Các bộ điều khiển USB HID Digitizer khác (VID/PID khác) có thể sử dụng được nếu gửi báo cáo theo chuẩn HID Touchscreen/Multi-touch (Usage Page `0x0D`, Usage `0x04`).
-> - TouchBridge sẽ tự động nhận diện thiết bị cảm ứng ngoài và màn hình được gán tương ứng.
+> **Phân định môi trường kiểm thử**:
+> - **Kiểm thử vật lý thực tế**: Thực hiện trực tiếp trên MacBook Pro 2019 Intel (`x86_64`) kết nối màn hình cảm ứng USB-C.
+> - **Kiểm thử tự động trên CI**: Chạy song song cả hai môi trường runner: Intel `x86_64` (trên macOS 13) và Apple Silicon `arm64` (trên macOS 15). Các bản build cross-compile từ arm64 sang x86_64 được định danh rõ là cross-compilation và chỉ coi là đã kiểm thử thực thi khi chạy trên host/runner Intel tương ứng.
 
 > [!IMPORTANT]
 > **Lưu ý về Bản chất Kỹ thuật (Technical Clarity)**:
@@ -51,15 +50,22 @@ Dự án sinh ra từ nhu cầu thực tế: mang lại trải nghiệm cảm �
 
 ### 1. Cài đặt bản đóng gói (Pre-built Release)
 
-1. Tải bản build mới nhất `TouchBridge-v1.0.0-macOS-intel.zip` từ mục [Releases](https://github.com/VuPhm/touch-bridge/releases).
-2. Giải nén và di chuyển file `TouchBridge Dev.app` vào thư mục `~/Applications/` (hoặc `/Applications/`).
-3. Khởi chạy ứng dụng lần đầu.
+1. Tải bản build phù hợp từ mục [Releases](https://github.com/VuPhm/touch-bridge/releases):
+   - `TouchBridge-v1.0.0-macOS-intel.zip` (dành cho Mac Intel như MacBook Pro 2019).
+   - `TouchBridge-v1.0.0-macOS-arm64.zip` (dành cho Mac Apple Silicon M1/M2/M3/M4).
+2. Giải nén file `.zip`.
+3. Di chuyển file ứng dụng vào thư mục `~/Applications/` (hoặc `/Applications/`).
+
+> [!NOTE]
+> **Về danh tính ứng dụng & Quyền Trợ năng (TCC)**:
+> - Bản cài đặt cá nhân sử dụng đường dẫn `~/Applications/TouchBridge Dev.app` và Bundle Identifier `com.antigravity.touchbridge.dev` với chứng chỉ ký số nội bộ nhằm bảo toàn vĩnh viễn quyền Trợ năng (Accessibility) và profile hiệu chuẩn, tránh việc macOS thu hồi quyền sau mỗi lần cập nhật. Tên hiển thị trên Menu Bar và cửa sổ ứng dụng là **TouchBridge**.
+> - Các bản gói tải từ GitHub Releases là bản build không chứng chỉ công chứng (notarization); khi mở lần đầu có thể cần click chuột phải → chọn *Open*.
 
 ### 2. Cấp quyền Trợ năng (Accessibility Permission)
 
 Để phát luồng sự kiện cảm ứng và cuộn mượt mà vào hệ thống, TouchBridge cần quyền Trợ năng:
 1. Khi mở app lần đầu, chọn **Mở Cài đặt Trợ năng** trong cửa sổ TouchBridge (hoặc vào *System Settings* → *Privacy & Security* → *Accessibility*).
-2. Bật công tắc cho phép **TouchBridge Dev**.
+2. Bật công tắc cho phép **TouchBridge Dev** (hoặc **TouchBridge**).
 3. Cửa sổ TouchBridge sẽ chuyển ngay sang trạng thái xanh **Sẵn Sàng Hoạt Động**.
 
 ### 3. Hiệu chuẩn 4 điểm (Calibration)
@@ -84,10 +90,10 @@ Nếu vị trí chạm bị lệch so với hình ảnh hiển thị trên màn 
 git clone https://github.com/VuPhm/touch-bridge.git
 cd touch-bridge
 
-# Kiểm tra bộ kiểm thử kiến trúc (Headless test suite)
+# Kiểm tra bộ kiểm thử kiến trúc (Headless test suite - 86 bài kiểm thử)
 swift run TouchBridgeProbe --test-architecture
 
-# Đóng gói và cài đặt ứng dụng có ký số phát triển
+# Đóng gói và cài đặt ứng dụng có ký số phát triển (xem docs/research/DEVELOPMENT_SIGNING.md)
 ./scripts/build_dev_app.sh --install --restart
 ```
 
@@ -95,7 +101,7 @@ swift run TouchBridgeProbe --test-architecture
 
 ## 🧪 Kiểm Thử Kiến Trúc & An Toàn
 
-Dự án tích hợp bộ kiểm thử kiến trúc độc lập (`--test-architecture`) với hơn **85 bài kiểm thử tự động**, bao gồm:
+Dự án tích hợp bộ kiểm thử kiến trúc độc lập (`--test-architecture`) với **86 bài kiểm thử tự động (86/86 passed, 0 failed)**, bao gồm:
 - **Ma trận tọa độ (Calibration & Transform Invariants)**: Đảm bảo độ chính xác chuyển đổi không gian màn hình, thích ứng 4 góc xoay (0°, 90°, 180°, 270°).
 - **Hệ thống cử chỉ (Gesture State Machine)**: Kiểm chứng Tap, Double-tap, Hold context menu, Drag lock, 1-finger inertial scroll, 2-finger pinch/zoom.
 - **An toàn giao diện (Safety Invariants)**: Đảm bảo không bao giờ tồn tại trạng thái kẹt mouse-down khi ngắt kết nối hoặc Sleep máy tính; chuột vật lý luôn có quyền tiếp quản ưu tiên.
@@ -124,12 +130,13 @@ touch-bridge/
 │       └── ...
 ├── scripts/
 │   ├── build_dev_app.sh          # Script build, ký số và đóng gói .zip
-│   └── install_dev_app.sh        # Script cài đặt nhanh
+│   ├── install_dev_app.sh        # Script cài đặt nhanh
+│   └── test_dev_signing.sh       # Script kiểm tra hồi quy ký số
 ├── docs/
 │   ├── images/                   # Ảnh chụp giao diện và sơ đồ
-│   └── research/                 # Toàn bộ nhật ký và báo cáo thử nghiệm gốc
+│   └── research/                 # Toàn bộ nhật ký và báo cáo thử nghiệm gốc (DEVELOPMENT_SIGNING.md,...)
 ├── .github/
-│   └── workflows/ci.yml          # GitHub Actions headless build & test
+│   └── workflows/ci.yml          # GitHub Actions headless build & test (x86_64 & arm64)
 ├── TouchBridgeCalibration.json   # Profile hiệu chuẩn mẫu
 ├── VERSION                       # Phiên bản phát hành
 └── README.md
@@ -139,4 +146,4 @@ touch-bridge/
 
 ## 📄 Bản Quyền & Giấy Phép
 
-Dự án được phân phối dưới giấy phép **MIT License**. Bạn được tự do sử dụng, chỉnh sửa và phân phối theo các điều khoản của giấy phép.
+Dự án cá nhân phục vụ cấu hình phần cứng nội bộ. Mọi quyền được bảo lưu bởi tác giả.

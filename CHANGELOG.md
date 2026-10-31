@@ -23,7 +23,7 @@ Toàn bộ các thay đổi đáng chú ý của dự án **TouchBridge** sẽ �
 - **Tự Động Reset Trạng Thái Khi Sleep/Wake**: Đăng ký nhận thông báo `NSWorkspace.willSleepNotification` và `screensDidSleepNotification` để hủy bỏ tức thì mọi gesture và giải phóng hoàn toàn virtual mouse-down, không bao giờ bị kẹt chuột sau khi mở máy.
 - **Fast-Path Drag Tối Ưu Độ Trễ**: Xử lý trực tiếp vùng thanh tiêu đề (Title Bar) và mép đổi kích thước (Resize Edges) với thời gian phản hồi < 0.2ms, bỏ qua duyệt cây Accessibility nặng.
 - **Tiếp Quản Tự Nhiên Khi Dùng Chuột Vật Lý**: Lắng nghe sự kiện di chuyển chuột/trackpad trong quá trình cảm ứng để nhường quyền ưu tiên tức thì cho thiết bị vật lý.
-- **Bộ Kiểm Thử Kiến Trúc Tự Động (85 bài kiểm thử)**: Chạy headless thông qua tham số `--test-architecture`.
+- **Bộ Kiểm Thử Kiến Trúc Tự Động (86 bài kiểm thử)**: Chạy headless thông qua tham số `--test-architecture` (86/86 passed, 0 failed).
 - **Tích Hợp CI GitHub Actions**: Tự động kiểm tra biên dịch và chạy bộ test kiến trúc trên macOS runner.
 
 ### Thay Đổi (Changed)

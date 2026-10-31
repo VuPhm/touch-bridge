@@ -639,7 +639,18 @@ public final class StatusSettingsWindowController: NSWindowController {
         
         let versionStr = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
         let buildStr = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "Dev"
-        aboutVersionLabel.stringValue = "TouchBridge v\(versionStr) (Build \(buildStr))"
+        let commitStr = Bundle.main.infoDictionary?["TouchBridgeCommit"] as? String
+        if let commit = commitStr, !commit.isEmpty {
+            aboutVersionLabel.stringValue = "TouchBridge v\(versionStr) (Build \(buildStr) • Commit \(commit))"
+        } else {
+            aboutVersionLabel.stringValue = "TouchBridge v\(versionStr) (Build \(buildStr))"
+        }
+    }
+    
+    public func selectTab(index: Int) {
+        guard index >= 0 && index < tabSegmentedControl.segmentCount else { return }
+        tabSegmentedControl.selectedSegment = index
+        tabView.selectTabViewItem(at: index)
     }
     
     public func showWindowToFront() {

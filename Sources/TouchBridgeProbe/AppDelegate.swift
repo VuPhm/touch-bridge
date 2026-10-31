@@ -85,6 +85,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, MenuBarActionDe
         runtime.updateAccessibilityState()
     }
 
+    public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        StatusSettingsWindowController.shared.showWindowToFront()
+        return true
+    }
+
     public func applicationWillTerminate(_ notification: Notification) {
         permissionRefreshTimer?.invalidate()
         permissionRefreshTimer = nil
