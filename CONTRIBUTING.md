@@ -27,7 +27,7 @@ Cảm ơn bạn đã quan tâm và đóng góp cho dự án **TouchBridge**!
    ```
 
 2. **Chạy Bộ Kiểm Thử Kiến Trúc**:
-   Trước khi commit, hãy đảm bảo toàn bộ 86 bài test kiến trúc đều vượt qua thành công:
+   Trước khi commit, hãy đảm bảo toàn bộ 91 bài test kiến trúc đều vượt qua thành công:
    ```bash
    swift run TouchBridgeProbe --test-architecture
    ```

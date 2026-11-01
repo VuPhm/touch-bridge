@@ -389,13 +389,12 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
         }
 
         if abs(deltaPixels.dy) > 0.01 {
-            haltFingerDownSmoothing()
             lastDirectPanVelocityY = session.filteredVelocity.dy
-        } else if fingerDownSmoothingTimer == nil, abs(lastDirectPanVelocityY) > 1 {
-            fingerDownSmoothingTail = FingerDownSmoothingTail(velocityY: lastDirectPanVelocityY)
+        } else {
             lastDirectPanVelocityY = 0
-            startFingerDownSmoothing(session: session)
         }
+        // Zero trailing coast: do not emit synthetic tail deltas while finger is held still on screen
+        haltFingerDownSmoothing()
 
         activeScrollBackend?.update(
             delta: deltaPixels,

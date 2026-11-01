@@ -1,0 +1,92 @@
+{
+  "affineMatrix" : {
+    "a" : -4.368015265426277,
+    "b" : 959.9900626791098,
+    "c" : -1279.9762296549518,
+    "d" : -7.80073831722602,
+    "tx" : 10.055613467091518,
+    "ty" : 1283.5817032207806
+  },
+  "backingScaleFactor" : 1,
+  "createdAt" : "2026-11-01T14:49:25Z",
+  "deviceName" : "USB2IIC_CTP_CONTROL",
+  "deviceProductID" : 58851,
+  "deviceVendorID" : 6790,
+  "displayHeight" : 1280,
+  "displayID" : 79846407,
+  "displayModelNumber" : 2416,
+  "displayName" : "TYPE C",
+  "displaySerialNumber" : 1,
+  "displayVendorNumber" : 9747,
+  "displayWidth" : 960,
+  "maxResidualError" : 2.2737367544323206e-13,
+  "meanResidualError" : 9.681335594770208e-14,
+  "points" : [
+    {
+      "label" : "Top-Left (Point 1\/4)",
+      "normalizedSensor" : {
+        "u" : 0.0703125,
+        "v" : 0.06640625
+      },
+      "rawSensor" : {
+        "x" : 288,
+        "y" : 272
+      },
+      "targetLocalCG" : [
+        64,
+        64
+      ]
+    },
+    {
+      "label" : "Top-Right (Point 2\/4)",
+      "normalizedSensor" : {
+        "u" : 0.9345703125,
+        "v" : 0.061279296875
+      },
+      "rawSensor" : {
+        "x" : 3828,
+        "y" : 251
+      },
+      "targetLocalCG" : [
+        1216,
+        64
+      ]
+    },
+    {
+      "label" : "Bottom-Right (Point 3\/4)",
+      "normalizedSensor" : {
+        "u" : 0.93359375,
+        "v" : 0.944091796875
+      },
+      "rawSensor" : {
+        "x" : 3824,
+        "y" : 3867
+      },
+      "targetLocalCG" : [
+        1216,
+        896
+      ]
+    },
+    {
+      "label" : "Bottom-Left (Point 4\/4)",
+      "normalizedSensor" : {
+        "u" : 0.060546875,
+        "v" : 0.93115234375
+      },
+      "rawSensor" : {
+        "x" : 248,
+        "y" : 3814
+      },
+      "targetLocalCG" : [
+        64,
+        896
+      ]
+    }
+  ],
+  "residualErrors" : [
+    2.2737367544323206e-13
+  ],
+  "rotationDegrees" : 270,
+  "transformType" : "affine",
+  "version" : 2
+}

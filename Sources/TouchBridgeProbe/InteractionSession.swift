@@ -243,6 +243,8 @@ public final class InteractionSession {
     public private(set) var lastMovementVelocitySampleMach: UInt64?
     public private(set) var releasePendingAt: Date?
     public private(set) var releaseSettleDeadline: Date?
+    public var scrollStabilizer = AdaptiveScrollStabilizer()
+    public private(set) var stationaryDwellDurationSec: Double = 0.0
     private var lastSampleTimeDate: Date
     private var lastSampleTimeMach: UInt64
     private var lastSamplePoint: CGPoint
@@ -396,12 +398,20 @@ public final class InteractionSession {
             self.lastSampleTimeMach = timestampMach
         }
         self.lastSamplePoint = global.cgGlobal
-        if hypot(frameDx, frameDy) > 0.01 {
-            self.lastMovementDerivedVelocity = self.filteredVelocity
-            self.lastMovementVelocitySampleAt = now
-            if timestampMach > 0 {
-                self.lastMovementVelocitySampleMach = timestampMach
+        let frameDist = hypot(frameDx, frameDy)
+        if frameDist > 0.01 {
+            if frameDist >= 1.0 || hypot(vx, vy) >= 60.0 {
+                self.lastMovementDerivedVelocity = self.filteredVelocity
+                self.lastMovementVelocitySampleAt = now
+                if timestampMach > 0 {
+                    self.lastMovementVelocitySampleMach = timestampMach
+                }
+                self.stationaryDwellDurationSec = 0.0
+            } else {
+                self.stationaryDwellDurationSec += dt
             }
+        } else {
+            self.stationaryDwellDurationSec += dt
         }
 
         // Track dwell-before-move for hold-then-drag disambiguation
@@ -482,7 +492,8 @@ public final class InteractionSession {
             
         case .directPan:
             let targetValue = calculateTargetScrollValue(currentY: global.cgGlobal.y)
-            let deltaPixels = CGVector(dx: frameDx, dy: frameDy)
+            let rawDelta = CGVector(dx: frameDx, dy: frameDy)
+            let deltaPixels = scrollStabilizer.filterDelta(rawDelta: rawDelta, currentVelocity: filteredVelocity)
             return .panValueUpdated(targetValue: targetValue, deltaPixels: deltaPixels)
 
         case .directDrag:
@@ -532,6 +543,8 @@ public final class InteractionSession {
         lastMovementDerivedVelocity = .zero
         lastMovementVelocitySampleAt = nil
         lastMovementVelocitySampleMach = nil
+        scrollStabilizer.reset()
+        stationaryDwellDurationSec = 0.0
         lastSamplePoint = point
         lastSampleTimeDate = now
         if timestampMach > 0 {
@@ -548,6 +561,10 @@ public final class InteractionSession {
     }
 
     public func latestMovementVelocitySnapshot(asOf time: Date) -> MovementVelocitySnapshot? {
+        // Suppress accidental momentum flick if finger dwelled stationary for >= 85ms before release
+        if stationaryDwellDurationSec >= 0.085 {
+            return nil
+        }
         guard let sampledAt = lastMovementVelocitySampleAt else { return nil }
         let age = time.timeIntervalSince(sampledAt)
         let velocity = lastMovementDerivedVelocity

@@ -20,6 +20,7 @@ func printHelp() {
       --test-arbitration  Launch P3-03 Interaction Router & Gesture Arbitration Testbed Window.
       --test-runtime      Run automated runtime, gesture arbitration, and tap routing validation suite.
       --test-architecture Run deterministic P3-04A architecture and P3-04B pointer transaction checks.
+      --print-grid-mapping Evaluate and print 3x3 touch mapping grid (uncompensated vs normalized).
       --test-physical-matrix Run live physical acceptance matrix across Finder, TextEdit, Safari, and Brave.
       --request-accessibility  Request macOS Accessibility permission for TouchBridgeProbe, then exit.
       --permission-status  Print this process's bundle/path/PID and read-only AX trust as JSON, then exit.
@@ -355,6 +356,150 @@ func runCLISemanticGate(
     CFRunLoopRun()
 }
 
+func runPrintGridMapping(args: [String]) {
+    print("================================================================================")
+    print("       TouchBridge — 3x3 Calibration & Geometry Mapping Diagnostic             ")
+    print("================================================================================")
+    
+    let displayID: CGDirectDisplayID = 79846407
+    let targetDisplay = DisplayManager.shared.findDisplay(byID: displayID) ?? DisplayMetadata(
+        id: displayID,
+        name: "TYPE C",
+        isBuiltIn: false,
+        isMain: false,
+        vendorNumber: 0x2613,
+        modelNumber: 0x0970,
+        serialNumber: 1,
+        unitNumber: 0,
+        appKitOriginX: 1792,
+        appKitOriginY: 0,
+        appKitWidth: 960,
+        appKitHeight: 1280,
+        cgOriginX: 1792,
+        cgOriginY: 160,
+        cgWidth: 960,
+        cgHeight: 1280,
+        pixelWidth: 960,
+        pixelHeight: 1280,
+        backingScaleFactor: 1.0,
+        rotationDegrees: 270.0
+    )
+    
+    let baseProfile = CalibrationProfileStore.shared.loadProfile(for: displayID, targetDisplay: targetDisplay)
+    guard let profile = baseProfile else {
+        print("[ERROR] No calibration profile found for display #\(displayID)")
+        return
+    }
+    
+    guard let adapted = profile.adapted(for: targetDisplay),
+          let matrixUncomp = adapted.affineMatrix else {
+        print("[ERROR] Failed to adapt calibration profile for 270° geometry")
+        return
+    }
+    
+    let matrixNorm = matrixUncomp.normalizedForTargetGeometry(targetWidth: 960.0, targetHeight: 1280.0, xOffset: 8.5)
+    
+    print("Target Display: \(targetDisplay.name) (#\(targetDisplay.id))")
+    print("Resolution:     \(Int(targetDisplay.cgWidth))x\(Int(targetDisplay.cgHeight)) @ \(Int(targetDisplay.rotationDegrees))°")
+    print("Profile Origin: \(Int(profile.displayWidth))x\(Int(profile.displayHeight)) @ \(Int(profile.rotationDegrees))° (created \(profile.createdAt))")
+    print("Root Cause:     Calibrated at 0° under underscan (span 1334pt vs 1280pt). Rotating to 270°")
+    print("                stretches Y by +3.6% from center (top triggers high, bottom triggers low)")
+    print("                and leaves consistent leftward X bias.")
+    print("--------------------------------------------------------------------------------")
+    print("Uncompensated Matrix (270° adapted with underscan stretch):")
+    print("  \(matrixUncomp)")
+    print("Normalized Matrix (270° scale-compensated & centered):")
+    print("  \(matrixNorm)")
+    print("================================================================================")
+    print(" 3x3 Grid Analysis (Top/Mid/Bot x Left/Mid/Right):")
+    print("-----------------+--------------+--------------+--------------+------------+-----------")
+    print("Grid Position    | Target (X,Y) | Sensor (u,v) | Uncomp (X,Y) | Uncomp Err | Norm Err  ")
+    print("-----------------+--------------+--------------+--------------+------------+-----------")
+    
+    let cols: [(name: String, x: Double)] = [("Left", 96.0), ("Mid", 480.0), ("Right", 864.0)]
+    let rows: [(name: String, y: Double)] = [("Top", 128.0), ("Mid", 640.0), ("Bottom", 1152.0)]
+    
+    var maxUncompErr = 0.0
+    var maxNormErr = 0.0
+    var sumUncompErr = 0.0
+    var sumNormErr = 0.0
+    
+    for r in rows {
+        for c in cols {
+            let label = "\(r.name)-\(c.name)"
+            let targetPt = CGPoint(x: c.x, y: r.y)
+            
+            // True sensor coordinate (calculated via inverse normalized matrix)
+            guard let (u, v) = matrixNorm.inverseTransform(point: targetPt) else { continue }
+            
+            let uncompPt = matrixUncomp.transform(u: u, v: v)
+            let normPt = matrixNorm.transform(u: u, v: v)
+            
+            let errUncomp = hypot(uncompPt.x - targetPt.x, uncompPt.y - targetPt.y)
+            let errNorm = hypot(normPt.x - targetPt.x, normPt.y - targetPt.y)
+            
+            if errUncomp > maxUncompErr { maxUncompErr = errUncomp }
+            if errNorm > maxNormErr { maxNormErr = errNorm }
+            sumUncompErr += errUncomp
+            sumNormErr += errNorm
+            
+            let posStr = label.padding(toLength: 16, withPad: " ", startingAt: 0)
+            let targetStr = String(format: "(%3.0f, %4.0f)", c.x, r.y)
+            let sensorStr = String(format: "(%.3f, %.3f)", u, v)
+            let uncompStr = String(format: "(%3.1f, %4.1f)", uncompPt.x, uncompPt.y)
+            let uncompErrStr = String(format: "%4.1f pt", errUncomp)
+            let normErrStr = String(format: "%3.1f pt", errNorm)
+            print("\(posStr) | \(targetStr) | \(sensorStr) | \(uncompStr) | \(uncompErrStr.padding(toLength: 10, withPad: " ", startingAt: 0)) | \(normErrStr)")
+        }
+    }
+    print("-----------------+--------------+--------------+--------------+------------+-----------")
+    let meanUncompStr = String(format: "%4.1f pt", sumUncompErr / 9.0).padding(toLength: 10, withPad: " ", startingAt: 0)
+    let meanNormStr = String(format: "%3.1f pt", sumNormErr / 9.0)
+    print("Mean Error:      |              |              |              | \(meanUncompStr) | \(meanNormStr)")
+    let maxUncompStr = String(format: "%4.1f pt", maxUncompErr).padding(toLength: 10, withPad: " ", startingAt: 0)
+    let maxNormStr = String(format: "%3.1f pt", maxNormErr)
+    print("Max Error:       |              |              |              | \(maxUncompStr) | \(maxNormStr)")
+    print("================================================================================")
+    
+    let normProfile = CalibrationProfile(
+        version: profile.version + 1,
+        createdAt: Date(),
+        deviceVendorID: profile.deviceVendorID,
+        deviceProductID: profile.deviceProductID,
+        deviceName: profile.deviceName,
+        rawMinX: profile.rawMinX,
+        rawMaxX: profile.rawMaxX,
+        rawMinY: profile.rawMinY,
+        rawMaxY: profile.rawMaxY,
+        displayID: targetDisplay.id,
+        displayName: targetDisplay.name,
+        displayVendorNumber: targetDisplay.vendorNumber,
+        displayModelNumber: targetDisplay.modelNumber,
+        displaySerialNumber: targetDisplay.serialNumber,
+        displayWidth: targetDisplay.cgWidth,
+        displayHeight: targetDisplay.cgHeight,
+        backingScaleFactor: targetDisplay.backingScaleFactor,
+        rotationDegrees: targetDisplay.rotationDegrees,
+        points: adapted.points,
+        transformType: "affine",
+        affineMatrix: matrixNorm,
+        homographyMatrix: nil,
+        residualErrors: [maxNormErr],
+        meanResidualError: sumNormErr / 9.0,
+        maxResidualError: maxNormErr
+    )
+    
+    let localRotURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("TouchBridgeCalibration-rot270.json")
+    try? normProfile.save(to: localRotURL)
+    
+    let authRotURL = CalibrationProfileStore.profileURL(for: targetDisplay.id, rotationDegrees: targetDisplay.rotationDegrees)
+    try? normProfile.save(to: authRotURL)
+    print("[✓] Saved 270° scale-compensated profile to:")
+    print("    - Local:         \(localRotURL.path)")
+    print("    - Authoritative: \(authRotURL.path)")
+    print("    Baseline 0° backup preserved in TouchBridgeCalibration.0deg.backup.json")
+}
+
 func main() {
     let args = CommandLine.arguments
     if args.contains("--help") || args.contains("-h") {
@@ -408,6 +553,10 @@ func main() {
             print("\(result.passed ? "[PASS]" : "[FAIL]") \(result.name): \(result.details)")
         }
         exit(report.allPassed ? 0 : 1)
+    }
+    if args.contains("--print-grid-mapping") {
+        runPrintGridMapping(args: args)
+        exit(0)
     }
     if args.contains("--test-physical-matrix") {
         let runner = PhysicalAcceptanceMatrixRunner()

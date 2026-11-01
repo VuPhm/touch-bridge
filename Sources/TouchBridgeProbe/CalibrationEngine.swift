@@ -46,6 +46,39 @@ public struct AffineMatrix2D: Codable, CustomStringConvertible, Equatable {
         return CGPoint(x: x, y: y)
     }
 
+    /// Inverse affine transform from Target Display Point -> Sensor (u, v)
+    public func inverseTransform(point: CGPoint) -> (u: Double, v: Double)? {
+        let det = a * d - b * c
+        guard abs(det) > 1e-9 else { return nil }
+        let dx = point.x - tx
+        let dy = point.y - ty
+        let u = (d * dx - b * dy) / det
+        let v = (-c * dx + a * dy) / det
+        return (u, v)
+    }
+
+    /// Normalizes this adapted matrix to eliminate underscan stretch and center offset.
+    public func normalizedForTargetGeometry(targetWidth: Double, targetHeight: Double, xOffset: Double = 0.0) -> AffineMatrix2D {
+        let centerX = targetWidth / 2.0
+        let centerY = targetHeight / 2.0
+        
+        let currentSpanX = hypot(a, b)
+        let currentSpanY = hypot(c, d)
+        
+        let scaleX = currentSpanX > 1.0 ? (targetWidth / currentSpanX) : 1.0
+        let scaleY = currentSpanY > 1.0 ? (targetHeight / currentSpanY) : 1.0
+        
+        let na = a * scaleX
+        let nb = b * scaleX
+        let ntx = centerX + (tx + xOffset - centerX) * scaleX
+        
+        let nc = c * scaleY
+        let nd = d * scaleY
+        let nty = centerY + (ty - centerY) * scaleY
+        
+        return AffineMatrix2D(a: na, b: nb, tx: ntx, c: nc, d: nd, ty: nty)
+    }
+
     /// Mathematically adapts this affine matrix from its calibrated display geometry/orientation
     /// to a rotated or scaled display geometry of the same physical touch panel.
     public func adapted(

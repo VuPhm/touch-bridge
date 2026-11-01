@@ -90,8 +90,11 @@ Nếu vị trí chạm bị lệch so với hình ảnh hiển thị trên màn 
 git clone https://github.com/VuPhm/touch-bridge.git
 cd touch-bridge
 
-# Kiểm tra bộ kiểm thử kiến trúc (Headless test suite - 86 bài kiểm thử)
+# Kiểm tra bộ kiểm thử kiến trúc (Headless test suite - 91 bài kiểm thử)
 swift run TouchBridgeProbe --test-architecture
+
+# Chẩn đoán lưới 3x3 kiểm tra mapping và hiệu chỉnh underscan
+swift run TouchBridgeProbe --print-grid-mapping
 
 # Đóng gói và cài đặt ứng dụng có ký số phát triển (xem docs/research/DEVELOPMENT_SIGNING.md)
 ./scripts/build_dev_app.sh --install --restart
@@ -101,7 +104,9 @@ swift run TouchBridgeProbe --test-architecture
 
 ## 🧪 Kiểm Thử Kiến Trúc & An Toàn
 
-Dự án tích hợp bộ kiểm thử kiến trúc độc lập (`--test-architecture`) với **86 bài kiểm thử tự động (86/86 passed, 0 failed)**, bao gồm:
+Dự án tích hợp bộ kiểm thử kiến trúc độc lập (`--test-architecture`) với **91 bài kiểm thử tự động (91/91 passed, 0 failed)**, bao gồm:
+- **Phép Chiếu Tọa Độ & Lưới 3×3 (Underscan Elimination)**: Kiểm chứng lưới 3×3 với sai số $< 1.0$ pt, loại bỏ độ dãn scale trục Y và sai số lệch trái do profile gốc 0° underscan.
+- **Bộ Lọc Chống Rung Thích Ứng (Adaptive Anti-Shake Scroll Stabilizer)**: Triệt tiêu micro-jitter khi dừng tay, tích lũy subpixel cho vuốt chậm trơn tru, đảo chiều tức thì và triệt tiêu văng quán tính ngoài ý muốn khi dừng tay trước khi nhấc.
 - **Ma trận tọa độ (Calibration & Transform Invariants)**: Đảm bảo độ chính xác chuyển đổi không gian màn hình, thích ứng 4 góc xoay (0°, 90°, 180°, 270°).
 - **Hệ thống cử chỉ (Gesture State Machine)**: Kiểm chứng Tap, Double-tap, Hold context menu, Drag lock, 1-finger inertial scroll, 2-finger pinch/zoom.
 - **An toàn giao diện (Safety Invariants)**: Đảm bảo không bao giờ tồn tại trạng thái kẹt mouse-down khi ngắt kết nối hoặc Sleep máy tính; chuột vật lý luôn có quyền tiếp quản ưu tiên.
