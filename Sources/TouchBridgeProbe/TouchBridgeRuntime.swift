@@ -398,6 +398,10 @@ public final class TouchBridgeRuntime: NSObject, TouchscreenDeviceDelegate, HIDF
     // MARK: - HIDFrameSourceDelegate
     
     public func hidFrameSource(_ source: HIDFrameSource, didProduceSample sample: TouchSample) {
+        if calibrationState == .calibrating {
+            CalibrationWindowController.shared.handleTouchSample(sample)
+            return
+        }
         // Forward sample to recognizer. Active contact state and gestures are tracked,
         // while SemanticInteractionRouter strictly suppresses semantic actions when UserIntent is DISABLED.
         recognizer.processSample(sample)

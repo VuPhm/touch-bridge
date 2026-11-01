@@ -308,6 +308,7 @@ public struct CalibrationProfile: Codable, Equatable {
     public var verificationErrors: [Double]? = nil
     public var meanVerificationError: Double? = nil
     public var maxVerificationError: Double? = nil
+    public var note: String? = nil
 
     public static var invertQuarterTurnDirection: Bool = false
 

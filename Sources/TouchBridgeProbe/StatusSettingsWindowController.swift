@@ -2,6 +2,32 @@ import Cocoa
 
 // MARK: - Native Settings & Status Window (TouchBridge v1.0.0)
 
+private final class StatusDotView: NSView {
+    var dotColor: NSColor = .systemGreen {
+        didSet { needsDisplay = true }
+    }
+    
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: 20, height: 20)
+    }
+    
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        
+        let center = CGPoint(x: bounds.midX, y: bounds.midY)
+        let radius: CGFloat = 7.0
+        
+        // Outer subtle halo
+        ctx.setFillColor(dotColor.withAlphaComponent(0.2).cgColor)
+        ctx.fillEllipse(in: CGRect(x: center.x - 10, y: center.y - 10, width: 20, height: 20))
+        
+        // Main circle
+        ctx.setFillColor(dotColor.cgColor)
+        ctx.fillEllipse(in: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
+    }
+}
+
 public final class StatusSettingsWindowController: NSWindowController {
     public static let shared = StatusSettingsWindowController()
     
@@ -10,7 +36,7 @@ public final class StatusSettingsWindowController: NSWindowController {
     private let tabView = NSTabView()
     
     // Overview Controls
-    private let statusBannerIcon = NSTextField(labelWithString: "🟢")
+    private let statusDotView = StatusDotView()
     private let statusBannerTitle = NSTextField(labelWithString: "Sẵn sàng hoạt động")
     private let statusBannerSubtitle = NSTextField(labelWithString: "Màn hình cảm ứng đang được kết nối và xử lý độc quyền.")
     private let bannerActionButton = NSButton(title: "Hành động", target: nil, action: nil)
@@ -32,7 +58,7 @@ public final class StatusSettingsWindowController: NSWindowController {
     private let displayDetailRotLabel = NSTextField(labelWithString: "270° (Thẳng đứng)")
     private let invertRotationSwitch = NSSwitch()
     private let calibrationStatusLabel = NSTextField(labelWithString: "Đã hiệu chuẩn (Sai số dư: 5.21 pt)")
-    private let calibrateButton = NSButton(title: "Hiệu chuẩn màn hình 4 điểm…", target: nil, action: nil)
+    private let calibrateButton = NSButton(title: "Hiệu chuẩn màn hình 9 điểm…", target: nil, action: nil)
     
     // Diagnostics & About Controls
     private let diagHardwareInfoLabel = NSTextField(labelWithString: "MacBook Pro 2019 (16-inch, Intel x86_64) • macOS 14.8.9")
@@ -40,14 +66,13 @@ public final class StatusSettingsWindowController: NSWindowController {
     private let exportReportButton = NSButton(title: "Xuất báo cáo chẩn đoán ra Desktop…", target: nil, action: nil)
     private let openDiagnosticsWindowButton = NSButton(title: "Mở bảng chẩn đoán trực tiếp…", target: nil, action: nil)
     private let openLogFinderButton = NSButton(title: "Mở file nhật ký (/tmp) trong Finder…", target: nil, action: nil)
-    private let openKeyboardViewerButton = NSButton(title: "Mở bàn phím ảo macOS (Accessibility Keyboard)…", target: nil, action: nil)
     
     private let aboutVersionLabel = NSTextField(labelWithString: "TouchBridge Phiên bản 1.0.0")
     private let aboutRepoButton = NSButton(title: "Xem mã nguồn trên GitHub (VuPhm/touch-bridge)", target: nil, action: nil)
     
     private init() {
         let win = NSWindow(
-            contentRect: NSRect(x: 100, y: 100, width: 560, height: 530),
+            contentRect: NSRect(x: 100, y: 100, width: 580, height: 530),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -55,6 +80,8 @@ public final class StatusSettingsWindowController: NSWindowController {
         win.title = "TouchBridge — Cài Đặt"
         win.center()
         win.isReleasedWhenClosed = false
+        win.contentMinSize = NSSize(width: 580, height: 500)
+        win.contentMaxSize = NSSize(width: 580, height: 800)
         super.init(window: win)
         
         setupUI()
@@ -67,7 +94,7 @@ public final class StatusSettingsWindowController: NSWindowController {
     private func setupUI() {
         guard let win = self.window else { return }
         
-        let rootContainer = NSView(frame: win.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 560, height: 530))
+        let rootContainer = NSView(frame: win.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 580, height: 530))
         rootContainer.autoresizingMask = [.width, .height]
         win.contentView = rootContainer
         
@@ -96,6 +123,8 @@ public final class StatusSettingsWindowController: NSWindowController {
         rootContainer.addSubview(closeButton)
         
         NSLayoutConstraint.activate([
+            rootContainer.widthAnchor.constraint(equalToConstant: 580),
+            
             tabSegmentedControl.topAnchor.constraint(equalTo: rootContainer.topAnchor, constant: 16),
             tabSegmentedControl.centerXAnchor.constraint(equalTo: rootContainer.centerXAnchor),
             tabSegmentedControl.heightAnchor.constraint(equalToConstant: 28),
@@ -115,6 +144,26 @@ public final class StatusSettingsWindowController: NSWindowController {
         buildTouchTab()
         buildDisplayTab()
         buildDiagnosticsTab()
+    }
+    
+    private func wrapInTabScrollView(contentView: NSView) -> NSScrollView {
+        let sv = NSScrollView()
+        sv.drawsBackground = false
+        sv.hasVerticalScroller = true
+        sv.hasHorizontalScroller = false
+        sv.autohidesScrollers = true
+        sv.borderType = .noBorder
+        
+        sv.documentView = contentView
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+        
+        NSLayoutConstraint.activate([
+            contentView.topAnchor.constraint(equalTo: sv.contentView.topAnchor),
+            contentView.leadingAnchor.constraint(equalTo: sv.contentView.leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: sv.contentView.trailingAnchor),
+            contentView.widthAnchor.constraint(equalTo: sv.contentView.widthAnchor)
+        ])
+        return sv
     }
     
     // MARK: - Tab 1: Tổng quan (Overview)
@@ -153,8 +202,7 @@ public final class StatusSettingsWindowController: NSWindowController {
         bannerStack.translatesAutoresizingMaskIntoConstraints = false
         bannerBox.addSubview(bannerStack)
         
-        statusBannerIcon.font = NSFont.systemFont(ofSize: 28)
-        bannerStack.addArrangedSubview(statusBannerIcon)
+        bannerStack.addArrangedSubview(statusDotView)
         
         let textStack = NSStackView()
         textStack.orientation = .vertical
@@ -162,10 +210,17 @@ public final class StatusSettingsWindowController: NSWindowController {
         textStack.spacing = 2
         
         statusBannerTitle.font = NSFont.boldSystemFont(ofSize: 15)
+        statusBannerTitle.cell?.wraps = true
+        statusBannerTitle.lineBreakMode = .byWordWrapping
         textStack.addArrangedSubview(statusBannerTitle)
         
         statusBannerSubtitle.font = NSFont.systemFont(ofSize: 12)
         statusBannerSubtitle.textColor = .secondaryLabelColor
+        statusBannerSubtitle.cell?.wraps = true
+        statusBannerSubtitle.cell?.isScrollable = false
+        statusBannerSubtitle.lineBreakMode = .byWordWrapping
+        statusBannerSubtitle.maximumNumberOfLines = 0
+        statusBannerSubtitle.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         textStack.addArrangedSubview(statusBannerSubtitle)
         bannerStack.addArrangedSubview(textStack)
         
@@ -245,7 +300,7 @@ public final class StatusSettingsWindowController: NSWindowController {
         stack.addArrangedSubview(switchesBox)
         switchesBox.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         
-        tabItem.view = view
+        tabItem.view = wrapInTabScrollView(contentView: view)
         tabView.addTabViewItem(tabItem)
     }
     
@@ -317,7 +372,7 @@ public final class StatusSettingsWindowController: NSWindowController {
         stack.addArrangedSubview(mainBox)
         mainBox.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         
-        tabItem.view = view
+        tabItem.view = wrapInTabScrollView(contentView: view)
         tabView.addTabViewItem(tabItem)
     }
     
@@ -382,9 +437,14 @@ public final class StatusSettingsWindowController: NSWindowController {
         
         calStack.addArrangedSubview(createFieldRow(title: "Trạng thái:", valueLabel: calibrationStatusLabel))
         
-        let calDesc = NSTextField(labelWithString: "Quy trình hiệu chuẩn bao gồm 4 điểm góc để khớp ma trận tọa độ và 2 điểm kiểm chứng độc lập (tâm và viền) để đảm bảo độ chính xác trên toàn màn hình.")
+        let calDesc = NSTextField(labelWithString: "Quy trình hiệu chuẩn bao gồm 9 điểm màn hình (4 góc, 4 giữa cạnh, tâm) để khớp chính xác ma trận tọa độ, kèm 4 điểm kiểm chứng độc lập để đảm bảo độ chính xác trên toàn màn hình.")
         calDesc.font = NSFont.systemFont(ofSize: 11)
         calDesc.textColor = .secondaryLabelColor
+        calDesc.cell?.wraps = true
+        calDesc.cell?.isScrollable = false
+        calDesc.lineBreakMode = .byWordWrapping
+        calDesc.maximumNumberOfLines = 0
+        calDesc.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         calStack.addArrangedSubview(calDesc)
         
         calibrateButton.target = self
@@ -401,7 +461,7 @@ public final class StatusSettingsWindowController: NSWindowController {
         stack.addArrangedSubview(calBox)
         calBox.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         
-        tabItem.view = view
+        tabItem.view = wrapInTabScrollView(contentView: view)
         tabView.addTabViewItem(tabItem)
     }
     
@@ -457,11 +517,6 @@ public final class StatusSettingsWindowController: NSWindowController {
         buttonRow.addArrangedSubview(openLogFinderButton)
         diagStack.addArrangedSubview(buttonRow)
         
-        openKeyboardViewerButton.target = self
-        openKeyboardViewerButton.action = #selector(handleToggleKeyboard)
-        openKeyboardViewerButton.bezelStyle = .rounded
-        diagStack.addArrangedSubview(openKeyboardViewerButton)
-        
         NSLayoutConstraint.activate([
             diagStack.topAnchor.constraint(equalTo: diagBox.topAnchor, constant: 12),
             diagStack.leadingAnchor.constraint(equalTo: diagBox.leadingAnchor, constant: 14),
@@ -481,11 +536,18 @@ public final class StatusSettingsWindowController: NSWindowController {
         aboutBox.addSubview(aboutStack)
         
         aboutVersionLabel.font = NSFont.boldSystemFont(ofSize: 13)
+        aboutVersionLabel.cell?.wraps = true
+        aboutVersionLabel.lineBreakMode = .byWordWrapping
         aboutStack.addArrangedSubview(aboutVersionLabel)
         
         let aboutDesc = NSTextField(labelWithString: "Tiện ích cầu nối cảm ứng trực tiếp (Direct-Touch Bridge) tối ưu hóa cho MacBook Pro 2019 Intel và màn hình cảm ứng ngoài USB-C.")
         aboutDesc.font = NSFont.systemFont(ofSize: 11)
         aboutDesc.textColor = .secondaryLabelColor
+        aboutDesc.cell?.wraps = true
+        aboutDesc.cell?.isScrollable = false
+        aboutDesc.lineBreakMode = .byWordWrapping
+        aboutDesc.maximumNumberOfLines = 0
+        aboutDesc.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         aboutStack.addArrangedSubview(aboutDesc)
         
         aboutRepoButton.target = self
@@ -502,7 +564,7 @@ public final class StatusSettingsWindowController: NSWindowController {
         stack.addArrangedSubview(aboutBox)
         aboutBox.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         
-        tabItem.view = view
+        tabItem.view = wrapInTabScrollView(contentView: view)
         tabView.addTabViewItem(tabItem)
     }
     
@@ -527,10 +589,16 @@ public final class StatusSettingsWindowController: NSWindowController {
         let t = NSTextField(labelWithString: title)
         t.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
         t.textColor = .secondaryLabelColor
+        t.setContentHuggingPriority(.required, for: .horizontal)
         t.widthAnchor.constraint(equalToConstant: 140).isActive = true
         row.addArrangedSubview(t)
         
         valueLabel.font = NSFont.systemFont(ofSize: 12)
+        valueLabel.cell?.wraps = true
+        valueLabel.cell?.isScrollable = false
+        valueLabel.lineBreakMode = .byWordWrapping
+        valueLabel.maximumNumberOfLines = 0
+        valueLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         row.addArrangedSubview(valueLabel)
         return row
     }
@@ -555,6 +623,11 @@ public final class StatusSettingsWindowController: NSWindowController {
         let s = NSTextField(labelWithString: subtitle)
         s.font = NSFont.systemFont(ofSize: 10)
         s.textColor = .secondaryLabelColor
+        s.cell?.wraps = true
+        s.cell?.isScrollable = false
+        s.lineBreakMode = .byWordWrapping
+        s.maximumNumberOfLines = 0
+        s.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         textStack.addArrangedSubview(s)
         
         row.addArrangedSubview(textStack)
@@ -570,15 +643,22 @@ public final class StatusSettingsWindowController: NSWindowController {
         let dot = NSTextField(labelWithString: "•")
         dot.font = NSFont.boldSystemFont(ofSize: 12)
         dot.textColor = .controlAccentColor
+        dot.setContentHuggingPriority(.required, for: .horizontal)
         row.addArrangedSubview(dot)
         
         let t = NSTextField(labelWithString: title)
         t.font = NSFont.boldSystemFont(ofSize: 11)
+        t.setContentHuggingPriority(.required, for: .horizontal)
         row.addArrangedSubview(t)
         
         let d = NSTextField(labelWithString: desc)
         d.font = NSFont.systemFont(ofSize: 11)
         d.textColor = .secondaryLabelColor
+        d.cell?.wraps = true
+        d.cell?.isScrollable = false
+        d.lineBreakMode = .byWordWrapping
+        d.maximumNumberOfLines = 0
+        d.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         row.addArrangedSubview(d)
         return row
     }
@@ -588,33 +668,33 @@ public final class StatusSettingsWindowController: NSWindowController {
     public func update(with snapshot: RuntimeSnapshot) {
         // Banner Status
         if snapshot.accessibility != .available {
-            statusBannerIcon.stringValue = "🔴"
+            statusDotView.dotColor = .systemRed
             statusBannerTitle.stringValue = "Cần Cấp Quyền Trợ Năng (Accessibility)"
             statusBannerSubtitle.stringValue = "macOS yêu cầu cấp quyền Accessibility để TouchBridge điều khiển sự kiện."
             bannerActionButton.title = "Mở Cài Đặt Quyền…"
             bannerActionButton.action = #selector(handleGrantAX)
             bannerActionButton.isHidden = false
         } else if !snapshot.isUserEnabled {
-            statusBannerIcon.stringValue = "⚪️"
+            statusDotView.dotColor = NSColor(white: 0.5, alpha: 0.8)
             statusBannerTitle.stringValue = "Cảm Ứng Đang Tắt"
             statusBannerSubtitle.stringValue = "Bật công tắc bên dưới để bắt đầu sử dụng cảm ứng."
             bannerActionButton.title = "Bật Cảm Ứng"
             bannerActionButton.action = #selector(handleEnableTouchAction)
             bannerActionButton.isHidden = false
         } else if snapshot.device == .disconnected {
-            statusBannerIcon.stringValue = "🟡"
+            statusDotView.dotColor = .systemYellow
             statusBannerTitle.stringValue = "Chưa Kết Nối Màn Hình Cảm Ứng"
             statusBannerSubtitle.stringValue = "Vui lòng cắm cáp USB của màn hình cảm ứng vào MacBook."
             bannerActionButton.isHidden = true
         } else if snapshot.calibration == .missing {
-            statusBannerIcon.stringValue = "🟡"
+            statusDotView.dotColor = .systemYellow
             statusBannerTitle.stringValue = "Cần Hiệu Chuẩn Tọa Độ Màn Hình"
             statusBannerSubtitle.stringValue = "Nhấp vào nút bên dưới để căn chỉnh độ chính xác của cảm ứng."
             bannerActionButton.title = "Hiệu Chuẩn Ngay…"
             bannerActionButton.action = #selector(handleCalibrate)
             bannerActionButton.isHidden = false
         } else {
-            statusBannerIcon.stringValue = "🟢"
+            statusDotView.dotColor = .systemGreen
             statusBannerTitle.stringValue = "Cảm Ứng Đang Sẵn Sàng"
             statusBannerSubtitle.stringValue = "Màn hình cảm ứng đang hoạt động bình thường và phản hồi 1:1."
             bannerActionButton.isHidden = true
@@ -711,10 +791,6 @@ public final class StatusSettingsWindowController: NSWindowController {
         if FileManager.default.fileExists(atPath: logPath) {
             NSWorkspace.shared.selectFile(logPath, inFileViewerRootedAtPath: "/tmp")
         }
-    }
-    
-    @objc private func handleToggleKeyboard() {
-        OnScreenKeyboardController.shared.toggleOnScreenKeyboard()
     }
     
     @objc private func handleOpenRepo() {

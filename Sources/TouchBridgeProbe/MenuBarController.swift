@@ -26,9 +26,8 @@ public final class MenuBarController: NSObject {
     private let toggleTouchItem = NSMenuItem(title: "Bật cảm ứng", action: #selector(toggleEnableAction), keyEquivalent: "e")
     private let calibrateItem = NSMenuItem(title: "Hiệu chuẩn màn hình…", action: #selector(calibrateAction), keyEquivalent: "c")
     private let settingsItem = NSMenuItem(title: "Cài đặt…", action: #selector(settingsAction), keyEquivalent: ",")
-    private let keyboardItem = NSMenuItem(title: "Bàn phím ảo macOS…", action: #selector(toggleKeyboardAction), keyEquivalent: "k")
     private let exportReportItem = NSMenuItem(title: "Xuất báo cáo chẩn đoán ra Desktop…", action: #selector(exportReportAction), keyEquivalent: "")
-    private let grantAXItem = NSMenuItem(title: "⚠️ Cấp quyền Trợ năng (Accessibility)…", action: #selector(grantAXAction), keyEquivalent: "")
+    private let grantAXItem = NSMenuItem(title: "Cấp quyền Trợ năng (Accessibility)…", action: #selector(grantAXAction), keyEquivalent: "")
     private let quitItem = NSMenuItem(title: "Thoát TouchBridge", action: #selector(quitAction), keyEquivalent: "q")
     
     public override init() {
@@ -84,9 +83,6 @@ public final class MenuBarController: NSObject {
         settingsItem.target = self
         menu.addItem(settingsItem)
         
-        keyboardItem.target = self
-        menu.addItem(keyboardItem)
-        
         exportReportItem.target = self
         menu.addItem(exportReportItem)
         
@@ -97,31 +93,31 @@ public final class MenuBarController: NSObject {
     }
     
     public func update(with snapshot: RuntimeSnapshot) {
-        // Status Summary
+        // Status Summary (clean monochrome, no emojis)
         if snapshot.accessibility != .available {
-            statusSummaryItem.title = "  🔴 Trợ năng: Chưa cấp quyền"
+            statusSummaryItem.title = "Trợ năng: Chưa cấp quyền"
             grantAXItem.isHidden = false
         } else if !snapshot.isUserEnabled {
-            statusSummaryItem.title = "  ⚪️ Cảm ứng: Đang tắt"
+            statusSummaryItem.title = "Cảm ứng: Đang tắt"
             grantAXItem.isHidden = true
         } else if snapshot.device == .disconnected {
-            statusSummaryItem.title = "  🟡 Thiết bị: Chưa cắm màn cảm ứng"
+            statusSummaryItem.title = "Thiết bị: Chưa cắm màn cảm ứng"
             grantAXItem.isHidden = true
         } else if snapshot.calibration == .missing {
-            statusSummaryItem.title = "  🟡 Hiệu chuẩn: Cần hiệu chuẩn"
+            statusSummaryItem.title = "Hiệu chuẩn: Cần hiệu chuẩn"
             grantAXItem.isHidden = true
         } else {
-            statusSummaryItem.title = "  🟢 Cảm ứng: Sẵn sàng hoạt động"
+            statusSummaryItem.title = "Cảm ứng: Sẵn sàng hoạt động"
             grantAXItem.isHidden = true
         }
         
         // Display Summary
         if let disp = snapshot.display.boundDisplay {
             let rotStr = disp.rotationDegrees > 0 ? " @ \(Int(disp.rotationDegrees))°" : ""
-            displaySummaryItem.title = "  🖥 Màn hình: \(disp.name) (\(Int(disp.cgWidth))×\(Int(disp.cgHeight))\(rotStr))"
+            displaySummaryItem.title = "Màn hình: \(disp.name) (\(Int(disp.cgWidth))×\(Int(disp.cgHeight))\(rotStr))"
             displaySummaryItem.isHidden = false
         } else {
-            displaySummaryItem.title = "  🖥 Màn hình: Chưa kết nối màn ngoài"
+            displaySummaryItem.title = "Màn hình: Chưa kết nối màn ngoài"
         }
         
         // Toggle item text & state
@@ -148,25 +144,22 @@ public final class MenuBarController: NSObject {
         let screenRect = bounds.insetBy(dx: 2.0, dy: 3.0)
         let screenPath = NSBezierPath(roundedRect: screenRect, xRadius: 2.5, yRadius: 2.5)
         screenPath.lineWidth = 1.4
-        if isOperational {
-            NSColor.controlAccentColor.setStroke()
-        } else {
-            NSColor.secondaryLabelColor.setStroke()
-        }
+        
+        // Stroke color: system black for template (inverts on dark mode), dimmed gray when disabled
+        let strokeColor = isOperational ? NSColor.black : NSColor(white: 0.5, alpha: 0.6)
+        strokeColor.setStroke()
         screenPath.stroke()
         
         // Center touch point / contact dot
         let dotRect = NSRect(x: center.x - 2.0, y: center.y - 2.0, width: 4.0, height: 4.0)
         let dotPath = NSBezierPath(ovalIn: dotRect)
-        if isOperational {
-            NSColor.controlAccentColor.setFill()
-        } else {
-            NSColor.secondaryLabelColor.setFill()
-        }
+        strokeColor.setFill()
         dotPath.fill()
         
         img.unlockFocus()
-        img.isTemplate = !isOperational
+        // Template mode adapts automatically to system Light/Dark mode.
+        // Disabled mode uses non-template dimmed gray so it remains muted across modes.
+        img.isTemplate = isOperational
         return img
     }
     
@@ -182,10 +175,6 @@ public final class MenuBarController: NSObject {
     
     @objc private func settingsAction() {
         actionDelegate?.menuBarDidRequestSettings()
-    }
-    
-    @objc private func toggleKeyboardAction() {
-        OnScreenKeyboardController.shared.toggleOnScreenKeyboard()
     }
     
     @objc private func exportReportAction() {

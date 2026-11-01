@@ -79,7 +79,7 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
     private var loggedMomentumFields = false
     private var usesCustomMomentumSchedulerForTesting = false
     private var lastMomentumTickUptime: TimeInterval = 0
-    public var showKeyboardPillOnTextTap: Bool = true
+    public var showKeyboardPillOnTextTap: Bool = false
 
     public init() {}
 
@@ -188,9 +188,6 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
             let result = transientPointerBackend.performClick(at: session.startGlobalPoint.cgGlobal, appName: appName)
             session.tapActionResult = result.succeeded ? "TRANSIENT_POINTER_CLICK" : "TRANSIENT_POINTER_CLICK_FAILED"
             TouchBridgeLogger.info(.semantic, "Final delivery result: \(session.tapActionResult)")
-            if showKeyboardPillOnTextTap, session.context?.isTextInputControl == true {
-                OnScreenKeyboardController.shared.showFloatingPill(near: session.startGlobalPoint.cgGlobal)
-            }
             delegate?.semanticRouter(
                 self,
                 didUpdateFeedback: result.succeeded ? "Transient Pointer Click [\(appName ?? "Application")]" : "Transient Pointer Click Failed",

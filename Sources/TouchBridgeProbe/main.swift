@@ -568,6 +568,39 @@ func main() {
         exit(report.allPassed ? 0 : 1)
     }
     
+    if args.contains("--capture-settings-tabs") {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.regular)
+        _ = TouchBridgeRuntime.shared.start()
+        let ctrl = StatusSettingsWindowController.shared
+        ctrl.showWindowToFront()
+        guard let win = ctrl.window, let contentView = win.contentView else {
+            print("Failed to get window")
+            exit(1)
+        }
+        
+        let tabNames = ["Overview", "Touch", "Display", "Diagnostics"]
+        for idx in 0..<4 {
+            ctrl.selectTab(index: idx)
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.15))
+            win.layoutIfNeeded()
+            contentView.layoutSubtreeIfNeeded()
+            
+            let frame = win.frame
+            print("[TAB \(idx): \(tabNames[idx])] Window Frame: width=\(frame.width), height=\(frame.height)")
+            
+            if let rep = contentView.bitmapImageRepForCachingDisplay(in: contentView.bounds) {
+                contentView.cacheDisplay(in: contentView.bounds, to: rep)
+                if let png = rep.representation(using: .png, properties: [:]) {
+                    let path = "/tmp/touchbridge_tab_\(idx)_\(tabNames[idx].lowercased()).png"
+                    try? png.write(to: URL(fileURLWithPath: path))
+                    print("  -> Saved screenshot: \(path)")
+                }
+            }
+        }
+        exit(0)
+    }
+    
     if args.contains("--preview-settings") {
         let app = NSApplication.shared
         app.setActivationPolicy(.regular)

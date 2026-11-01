@@ -42,7 +42,7 @@ public final class CalibrationWindowController: NSWindowController, CalibrationD
         win.setFrame(targetScreen.frame, display: true)
         win.level = .floating
         win.isReleasedWhenClosed = false
-        win.title = "TouchBridge 4-Point Calibration"
+        win.title = "TouchBridge 9-Point Physical Calibration"
         
         let calView = CalibrationView(frame: win.contentView?.bounds ?? .zero, display: display)
         calView.delegate = self
@@ -53,7 +53,7 @@ public final class CalibrationWindowController: NSWindowController, CalibrationD
         win.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         
-        TouchBridgeLogger.info(.calibration, "4-point calibration window opened on display \"\(display.name)\".")
+        TouchBridgeLogger.info(.calibration, "9-point physical calibration window opened on display \"\(display.name)\".")
     }
     
     public func handleTouchSample(_ sample: TouchSample) {

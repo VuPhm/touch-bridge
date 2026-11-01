@@ -245,7 +245,7 @@ public final class RuntimeValidator {
         test131_TwoAxisScrollAndDirectSubpixelRemainderAccumulation()
         test132_MonotonicTimestampVelocityAndRealElapsedMomentumDt()
         test133_TwoFingerPinchMagnifyAndRotateSynthesis()
-        test134_ThreeByThreeGridMappingPrecision()
+        test134_AffineMatrixAlgebraicInvertibilityAndRoundTripConsistency()
         test135_AdaptiveScrollStabilizerStationaryTremorSuppression()
         test136_AdaptiveScrollStabilizerSlowCrawlSubpixelAccumulation()
         test137_AdaptiveScrollStabilizerImmediateDirectionReversal()
@@ -3528,10 +3528,10 @@ public final class RuntimeValidator {
         recognizer.reset()
     }
 
-    private func test134_ThreeByThreeGridMappingPrecision() {
+    private func test134_AffineMatrixAlgebraicInvertibilityAndRoundTripConsistency() {
         let store = CalibrationProfileStore.shared
         guard let baseProfile = store.loadProfile(for: 79846407) else {
-            record(name: "Test 134: 3x3 Grid Mapping Precision", passed: false, details: "Base calibration profile missing")
+            record(name: "Test 134: Affine Matrix Algebraic Invertibility and Round-Trip Consistency", passed: false, details: "Base calibration profile missing")
             return
         }
 
@@ -3560,7 +3560,7 @@ public final class RuntimeValidator {
 
         guard let adapted = baseProfile.adapted(for: targetDisplay),
               let matrixUncomp = adapted.affineMatrix else {
-            record(name: "Test 134: 3x3 Grid Mapping Precision", passed: false, details: "Failed to adapt matrix")
+            record(name: "Test 134: Affine Matrix Algebraic Invertibility and Round-Trip Consistency", passed: false, details: "Failed to adapt matrix")
             return
         }
 
@@ -3580,11 +3580,11 @@ public final class RuntimeValidator {
             }
         }
 
-        let passed = maxNormError < 1.0
+        let passed = maxNormError < 0.001
         record(
-            name: "Test 134: 3x3 Grid Mapping Precision and Underscan Elimination",
+            name: "Test 134: Affine Matrix Algebraic Invertibility and Round-Trip Consistency",
             passed: passed,
-            details: "Evaluated 9 grid points across 270° orientation: max residual error = \(String(format: "%.2f", maxNormError)) pt (tolerance < 1.0 pt), completely eliminating +3.6% stretch."
+            details: "Algebraic round-trip check across 9 grid points (inverseTransform -> transform): max algebraic residual = \(String(format: "%.4f", maxNormError)) pt (tolerance < 0.001 pt). Note: This verifies mathematical matrix invertibility and numerical stability, not physical touch sensor accuracy or underscan removal."
         )
     }
 
