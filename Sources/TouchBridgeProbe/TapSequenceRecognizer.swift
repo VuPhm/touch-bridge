@@ -2,8 +2,8 @@ import Foundation
 import CoreGraphics
 import Cocoa
 
-/// Tracks whether a completed tap can pair with the next tap. Each completed
-/// tap is delivered immediately; this type never delays or replays click 1.
+/// Tracks whether a completed tap can pair with subsequent taps (double-tap, triple-tap).
+/// Each completed tap is delivered immediately; this type never delays or replays click 1.
 final class TapSequenceRecognizer {
     typealias Scheduler = (TimeInterval, @escaping () -> Void) -> (() -> Void)
 
@@ -11,10 +11,13 @@ final class TapSequenceRecognizer {
 
     var onFirstTap: ((InteractionSession) -> Void)?
     var onPairedSecondTap: ((InteractionSession) -> Void)?
+    var onTripleTap: ((InteractionSession) -> Void)?
+    var enableTripleTap: Bool = false
 
     private struct PairingCandidate {
         let point: CGPoint
         let completedAt: Date
+        let count: Int
         let generation: UInt64
     }
 
@@ -22,7 +25,7 @@ final class TapSequenceRecognizer {
     private var scheduler: Scheduler
     private var cancelTimeout: (() -> Void)?
     private var pairingCandidate: PairingCandidate?
-    private var secondTapCandidate = false
+    public private(set) var currentSequenceCount: Int = 0
     private var generation: UInt64 = 0
 
     init(doubleTapInterval: TimeInterval = NSEvent.doubleClickInterval, scheduler: Scheduler? = nil) {
@@ -35,6 +38,8 @@ final class TapSequenceRecognizer {
     }
 
     var hasPairingCandidate: Bool { pairingCandidate != nil }
+    var isSecondTapCandidate: Bool { currentSequenceCount == 2 }
+    var isThirdTapCandidate: Bool { currentSequenceCount == 3 }
 
     func configureForTesting(doubleTapInterval: TimeInterval, scheduler: @escaping Scheduler) {
         reset()
@@ -47,7 +52,7 @@ final class TapSequenceRecognizer {
     @discardableResult
     func beginCandidate(at point: CGPoint, now: Date) -> Bool {
         guard let previous = pairingCandidate else {
-            secondTapCandidate = false
+            currentSequenceCount = 1
             return false
         }
 
@@ -55,54 +60,69 @@ final class TapSequenceRecognizer {
         let distance = hypot(point.x - previous.point.x, point.y - previous.point.y)
         guard elapsed >= 0, elapsed <= doubleTapInterval, distance <= Self.spatialTolerancePt else {
             clearPairingCandidate()
-            secondTapCandidate = false
+            currentSequenceCount = 1
             return false
         }
 
         cancelTimeout?()
         cancelTimeout = nil
-        secondTapCandidate = true
+        currentSequenceCount = previous.count + 1
         return true
     }
 
     func completeCandidate(_ session: InteractionSession, at point: CGPoint, now: Date) {
-        if secondTapCandidate, pairingCandidate != nil {
-            clearPairingCandidate()
-            secondTapCandidate = false
+        let count = currentSequenceCount
+        currentSequenceCount = 0
+
+        if count == 2 {
+            // Completed 2nd tap! Pair with click 2.
+            // Only store pairing candidate for 3rd tap if triple tap is explicitly enabled and handled.
+            if enableTripleTap && onTripleTap != nil {
+                storePairingCandidate(at: point, count: 2, now: now)
+            } else {
+                clearPairingCandidate()
+            }
             onPairedSecondTap?(session)
             return
         }
 
-        secondTapCandidate = false
-        storePairingCandidate(at: point, now: now)
+        if count == 3 {
+            // Completed 3rd tap! Sequence completes (triple tap)
+            clearPairingCandidate()
+            onTripleTap?(session)
+            return
+        }
+
+        // Default: completed 1st tap! Eligible for 2nd tap within doubleTapInterval
+        storePairingCandidate(at: point, count: 1, now: now)
         onFirstTap?(session)
     }
 
     /// Any non-tap transition invalidates only future pairing. The completed
     /// first click has already been sent and is never replayed or withdrawn.
     func cancelCandidate() {
-        secondTapCandidate = false
+        currentSequenceCount = 0
         clearPairingCandidate()
     }
 
     func reset() {
-        secondTapCandidate = false
+        currentSequenceCount = 0
         clearPairingCandidate()
         generation &+= 1
     }
 
-    private func storePairingCandidate(at point: CGPoint, now: Date) {
+    private func storePairingCandidate(at point: CGPoint, count: Int, now: Date) {
         cancelTimeout?()
         generation &+= 1
         let token = generation
-        pairingCandidate = PairingCandidate(point: point, completedAt: now, generation: token)
+        pairingCandidate = PairingCandidate(point: point, completedAt: now, count: count, generation: token)
         // Timeout only expires pairing eligibility; it cannot emit another click.
         cancelTimeout = scheduler(doubleTapInterval) { [weak self] in
             guard let self,
                   self.pairingCandidate?.generation == token else { return }
             self.pairingCandidate = nil
             self.cancelTimeout = nil
-            self.secondTapCandidate = false
+            self.currentSequenceCount = 0
             self.generation &+= 1
         }
     }

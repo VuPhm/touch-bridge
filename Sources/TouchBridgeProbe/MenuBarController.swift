@@ -11,7 +11,7 @@ public protocol MenuBarActionDelegate: AnyObject {
     func menuBarDidRequestQuit()
 }
 
-public final class MenuBarController: NSObject {
+public final class MenuBarController: NSObject, NSMenuDelegate {
     public weak var actionDelegate: MenuBarActionDelegate?
     
     private var statusItem: NSStatusItem?
@@ -25,6 +25,7 @@ public final class MenuBarController: NSObject {
     // Quick Actions
     private let toggleTouchItem = NSMenuItem(title: "Bật cảm ứng", action: #selector(toggleEnableAction), keyEquivalent: "e")
     private let calibrateItem = NSMenuItem(title: "Hiệu chuẩn màn hình…", action: #selector(calibrateAction), keyEquivalent: "c")
+    private let keyboardToggleItem = NSMenuItem(title: "Hiện bàn phím", action: #selector(toggleKeyboardAction), keyEquivalent: "k")
     private let settingsItem = NSMenuItem(title: "Cài đặt…", action: #selector(settingsAction), keyEquivalent: ",")
     private let exportReportItem = NSMenuItem(title: "Xuất báo cáo chẩn đoán ra Desktop…", action: #selector(exportReportAction), keyEquivalent: "")
     private let grantAXItem = NSMenuItem(title: "Cấp quyền Trợ năng (Accessibility)…", action: #selector(grantAXAction), keyEquivalent: "")
@@ -80,6 +81,9 @@ public final class MenuBarController: NSObject {
         calibrateItem.target = self
         menu.addItem(calibrateItem)
         
+        keyboardToggleItem.target = self
+        menu.addItem(keyboardToggleItem)
+        
         settingsItem.target = self
         menu.addItem(settingsItem)
         
@@ -90,9 +94,20 @@ public final class MenuBarController: NSObject {
         
         quitItem.target = self
         menu.addItem(quitItem)
+        menu.delegate = self
+    }
+    
+    public func menuWillOpen(_ menu: NSMenu) {
+        updateKeyboardMenuItem()
+    }
+    
+    private func updateKeyboardMenuItem() {
+        let isVisible = SystemVirtualKeyboardManager.shared.isVisible
+        keyboardToggleItem.title = isVisible ? "Ẩn bàn phím" : "Hiện bàn phím"
     }
     
     public func update(with snapshot: RuntimeSnapshot) {
+        updateKeyboardMenuItem()
         // Status Summary (clean monochrome, no emojis)
         if snapshot.accessibility != .available {
             statusSummaryItem.title = "Trợ năng: Chưa cấp quyền"
@@ -171,6 +186,11 @@ public final class MenuBarController: NSObject {
     
     @objc private func calibrateAction() {
         actionDelegate?.menuBarDidRequestCalibration()
+    }
+    
+    @objc private func toggleKeyboardAction() {
+        SystemVirtualKeyboardManager.shared.toggle()
+        updateKeyboardMenuItem()
     }
     
     @objc private func settingsAction() {

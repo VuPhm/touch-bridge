@@ -82,13 +82,17 @@ public final class CalibrationProfileStore {
     
     /// Saves a newly calibrated profile into the authoritative store.
     public func saveProfile(_ profile: CalibrationProfile) throws {
-        let authURL = CalibrationProfileStore.profileURL(for: profile.displayID)
-        try profile.save(to: authURL)
-        let rotURL = CalibrationProfileStore.profileURL(for: profile.displayID, rotationDegrees: profile.rotationDegrees)
-        if rotURL != authURL {
-            try? profile.save(to: rotURL)
+        let targetURL: URL
+        if profile.rotationDegrees != 0 {
+            let rotURL = CalibrationProfileStore.profileURL(for: profile.displayID, rotationDegrees: profile.rotationDegrees)
+            try profile.save(to: rotURL)
+            targetURL = rotURL
+        } else {
+            let authURL = CalibrationProfileStore.profileURL(for: profile.displayID)
+            try profile.save(to: authURL)
+            targetURL = authURL
         }
-        TouchBridgeLogger.info(.calibration, "Saved calibration profile to authoritative store: \(authURL.path) (Mean error: \(String(format: "%.2f", profile.meanResidualError)) pt)")
+        TouchBridgeLogger.info(.calibration, "Saved calibration profile to authoritative store: \(targetURL.path) (Mean error: \(String(format: "%.2f", profile.meanResidualError)) pt)")
         
         // Also sync local workspace file for development consistency
         let cwdURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("TouchBridgeCalibration.json")

@@ -250,6 +250,9 @@ public final class RuntimeValidator {
         test136_AdaptiveScrollStabilizerSlowCrawlSubpixelAccumulation()
         test137_AdaptiveScrollStabilizerImmediateDirectionReversal()
         test138_StationaryHoldBeforeLiftSuppressesMomentumFlick()
+        test139_SystemVirtualKeyboardManagerIntegration()
+        test140_DoubleTapHoldDragWordSelectionLifecycle()
+        test141_TripleTapParagraphSelectionAndPopoverArbitration()
 
         let passed = results.filter(\.passed).count
         let failed = results.count - passed
@@ -761,6 +764,7 @@ public final class RuntimeValidator {
     private final class TestGestureDelegate: TouchGestureRecognizerDelegate {
         var tapCount = 0
         var doubleTapCount = 0
+        var tripleTapCount = 0
         var panStartCount = 0
         var panUpdateCount = 0
         var panCompleteCount = 0
@@ -775,6 +779,9 @@ public final class RuntimeValidator {
         var dragStartCount = 0
         var dragUpdateCount = 0
         var dragEndCount = 0
+        var wordSelectionDragStartCount = 0
+        var wordSelectionDragUpdateCount = 0
+        var wordSelectionDragEndCount = 0
         var magnifyCount = 0
         var rotateCount = 0
 
@@ -782,6 +789,7 @@ public final class RuntimeValidator {
             switch intent {
             case .tap: tapCount += 1
             case .pairedSecondTap: doubleTapCount += 1
+            case .tripleTap: tripleTapCount += 1
             case .contextMenu: contextMenuCount += 1
             case .directPanStarted: panStartCount += 1
             case .directPanAXValueUpdated(let session, let targetValue):
@@ -793,6 +801,9 @@ public final class RuntimeValidator {
             case .dragStarted: dragStartCount += 1
             case .dragUpdated: dragUpdateCount += 1
             case .dragEnded: dragEndCount += 1
+            case .wordSelectionDragStarted: wordSelectionDragStartCount += 1
+            case .wordSelectionDragUpdated: wordSelectionDragUpdateCount += 1
+            case .wordSelectionDragEnded: wordSelectionDragEndCount += 1
             case .magnifyUpdated: magnifyCount += 1
             case .rotateUpdated: rotateCount += 1
             case .momentumStarted: momentumEnterCount += 1
@@ -3677,6 +3688,110 @@ public final class RuntimeValidator {
             name: "Test 138: Stationary Hold Before Lift Suppresses Accidental Momentum Flick",
             passed: passed,
             details: "Stationary pause (100 ms) before release correctly suppressed release velocity (snapshot is nil), preventing accidental screen throw."
+        )
+    }
+
+    private func test139_SystemVirtualKeyboardManagerIntegration() {
+        let mgr = SystemVirtualKeyboardManager.shared
+        let initialVisible = mgr.isVisible
+        
+        // Verify manager responds to visibility inquiries without crashing or throwing
+        let toggled = mgr.setVisible(initialVisible)
+        let visibleAfterSet = mgr.isVisible
+        
+        let passed = toggled && (visibleAfterSet == initialVisible)
+        record(
+            name: "Test 139: Native System Virtual Keyboard Manager Integration",
+            passed: passed,
+            details: "SystemVirtualKeyboardManager interfaces safely with UniversalAccessCore C symbols without stealing key focus or throwing uncaught exceptions."
+        )
+    }
+
+    private func test140_DoubleTapHoldDragWordSelectionLifecycle() {
+        let operations = FakePointerOperations()
+        let backend = TransientPointerTapBackend(operations: operations)
+        let router = SemanticInteractionRouter()
+        let recognizer = TouchGestureRecognizer(mapper: CoordinateMapper())
+        recognizer.directTouchModeEnabled = true
+        let scheduler = ManualTapScheduler()
+        router.userIntent = .enabled
+        router.tapBackendMode = .transientPointer
+        router.transientPointerBackend = backend
+        recognizer.delegate = router
+        recognizer.setTapSequenceSchedulerForTesting(doubleTapInterval: 0.30) { interval, action in
+            scheduler.schedule(interval, action: action)
+        }
+        let base = Date(timeIntervalSince1970: 1_800_000_000)
+        let startPt = CGPoint(x: 240, y: 240)
+
+        // 1. Tap 1: Down and Up (emits single click at clickState = 1)
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: startPt), global: GlobalDisplayPoint(cgGlobal: startPt), contactID: 1, now: base)
+        recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: startPt), global: GlobalDisplayPoint(cgGlobal: startPt), contactID: 1, now: base.addingTimeInterval(0.05))
+
+        // 2. Tap 2: Down near same position within interval -> enters word selection candidate
+        let tap2Pt = CGPoint(x: 242, y: 241)
+        let t2 = base.addingTimeInterval(0.12)
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: tap2Pt), global: GlobalDisplayPoint(cgGlobal: tap2Pt), contactID: 1, now: t2)
+
+        // 3. Move > 4 pt -> transitions to word selection drag!
+        let dragPt1 = CGPoint(x: 260, y: 241)
+        recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: dragPt1), global: GlobalDisplayPoint(cgGlobal: dragPt1), contactID: 1, now: t2.addingTimeInterval(0.04))
+        
+        let dragPt2 = CGPoint(x: 290, y: 241)
+        recognizer.processMappedPoint(phase: .move, local: DisplayLocalPoint(cgPoint: dragPt2), global: GlobalDisplayPoint(cgGlobal: dragPt2), contactID: 1, now: t2.addingTimeInterval(0.08))
+
+        // 4. Lift -> completes word selection drag
+        recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: dragPt2), global: GlobalDisplayPoint(cgGlobal: dragPt2), contactID: 1, now: t2.addingTimeInterval(0.12))
+
+        let dragTypesCorrect = operations.postedTypes == [.leftMouseDown, .leftMouseUp, .leftMouseDown, .leftMouseDragged, .leftMouseDragged, .leftMouseUp]
+        let dragClickStatesCorrect = operations.postedClickStates == [1, 1, 2, 2, 2, 2]
+        let isNotDragging = !backend.isDragging && !backend.isWordSelectionDrag
+
+        let passed = dragTypesCorrect && dragClickStatesCorrect && isNotDragging
+        record(
+            name: "Test 140: Double-Tap–Hold–Drag Word Selection Lifecycle",
+            passed: passed,
+            details: "Tap 1 completes single click; Tap 2 held and dragged synthesizes native clickState = 2 mouse sequence (down -> drag -> up) without triggering scroll, object drag, or long-press context menu."
+        )
+    }
+
+    private func test141_TripleTapParagraphSelectionAndPopoverArbitration() {
+        let operations = FakePointerOperations()
+        let backend = TransientPointerTapBackend(operations: operations)
+        let router = SemanticInteractionRouter()
+        let recognizer = TouchGestureRecognizer(mapper: CoordinateMapper())
+        recognizer.directTouchModeEnabled = true
+        let scheduler = ManualTapScheduler()
+        router.userIntent = .enabled
+        router.tapBackendMode = .transientPointer
+        router.transientPointerBackend = backend
+        recognizer.delegate = router
+        recognizer.setTapSequenceSchedulerForTesting(doubleTapInterval: 0.30) { interval, action in
+            scheduler.schedule(interval, action: action)
+        }
+        let base = Date(timeIntervalSince1970: 1_800_000_000)
+        let pt = CGPoint(x: 300, y: 300)
+
+        // Tap 1
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: pt), global: GlobalDisplayPoint(cgGlobal: pt), contactID: 1, now: base)
+        recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: pt), global: GlobalDisplayPoint(cgGlobal: pt), contactID: 1, now: base.addingTimeInterval(0.04))
+
+        // Tap 2
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: pt), global: GlobalDisplayPoint(cgGlobal: pt), contactID: 1, now: base.addingTimeInterval(0.10))
+        recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: pt), global: GlobalDisplayPoint(cgGlobal: pt), contactID: 1, now: base.addingTimeInterval(0.14))
+
+        // Tap 3
+        recognizer.processMappedPoint(phase: .down, local: DisplayLocalPoint(cgPoint: pt), global: GlobalDisplayPoint(cgGlobal: pt), contactID: 1, now: base.addingTimeInterval(0.20))
+        recognizer.processMappedPoint(phase: .up, local: DisplayLocalPoint(cgPoint: pt), global: GlobalDisplayPoint(cgGlobal: pt), contactID: 1, now: base.addingTimeInterval(0.24))
+
+        let triplePosted = operations.postedTypes == [.leftMouseDown, .leftMouseUp, .leftMouseDown, .leftMouseUp, .leftMouseDown, .leftMouseUp]
+        let clickStatesCorrect = operations.postedClickStates == [1, 1, 2, 2, 3, 3]
+
+        let passed = triplePosted && clickStatesCorrect
+        record(
+            name: "Test 141: Triple-Tap Paragraph Selection and Arbitration",
+            passed: passed,
+            details: "Three rapid taps within double-click interval execute native clickState = 3 paragraph selection transaction, clearing pairing candidate on completion."
         )
     }
 

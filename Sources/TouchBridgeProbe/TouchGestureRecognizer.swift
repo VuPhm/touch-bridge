@@ -18,7 +18,11 @@ public final class TouchGestureRecognizer {
     public private(set) var activeSession: InteractionSession? = nil
     public var testContextOverride: AXInteractionContext? = nil
     public var experimentalOneFingerPanEnabled = GestureArbitrationConfig.experimentalOneFingerPanEnabled
-    public var directTouchModeEnabled: Bool = false
+    public var directTouchModeEnabled: Bool = false {
+        didSet {
+            tapSequenceRecognizer.enableTripleTap = directTouchModeEnabled
+        }
+    }
     /// In unit tests where `directTouchModeEnabled` is enabled without live screen windows, set false to skip live CGWindow/AX hit-testing when `testContextOverride == nil`.
     public var allowLiveHitDiscoveryInDirectMode: Bool = true
 
@@ -58,6 +62,7 @@ public final class TouchGestureRecognizer {
         self.mapper = mapper
         tapSequenceRecognizer.onFirstTap = { [weak self] session in self?.emit(.tap(session)) }
         tapSequenceRecognizer.onPairedSecondTap = { [weak self] session in self?.emit(.pairedSecondTap(session)) }
+        tapSequenceRecognizer.onTripleTap = { [weak self] session in self?.emit(.tripleTap(session)) }
     }
     
     public func updateBinding() {
@@ -107,7 +112,7 @@ public final class TouchGestureRecognizer {
         cancelPendingLongPressTimer()
         if let s = activeSession {
             resetTwoFingerPinchRotateIfNeeded(for: s)
-            let wasDragging = (s.state == .directDrag)
+            let wasDragging = (s.state == .directDrag || s.state == .wordSelectionDrag)
             s.cancel(reason: "HOT_PLUG_RESET")
             if wasDragging {
                 emit(.cancelled(s, reason: "HOT_PLUG_RESET"))
@@ -308,10 +313,13 @@ public final class TouchGestureRecognizer {
                 session.experimentalOneFingerPanEnabled = experimentalOneFingerPanEnabled
                 session.directTouchModeEnabled = directTouchModeEnabled
                 session.interruptedActiveMomentum = didInterruptActiveMomentum
+                if tapSequenceRecognizer.isSecondTapCandidate {
+                    session.isWordSelectionCandidate = true
+                }
                 self.activeSession = session
                 firstContactLiftAt = nil
 
-                if directTouchModeEnabled && !didInterruptActiveMomentum {
+                if directTouchModeEnabled && !didInterruptActiveMomentum && !session.isWordSelectionCandidate {
                     cancelPendingLongPressTimer()
                     cancelLongPressTimer = longPressScheduler(GestureArbitrationConfig.longPressContextMenuDurationSec) { [weak self, weak session] in
                         guard let self,
@@ -470,6 +478,14 @@ public final class TouchGestureRecognizer {
 
             case .dragUpdated(let currentPoint, let deltaPixels):
                 emit(.dragUpdated(session, currentPoint: currentPoint, deltaPixels: deltaPixels))
+
+            case .transitionedToWordSelectionDrag:
+                tapSequenceRecognizer.cancelCandidate()
+                cancelPendingLongPressTimer()
+                emit(.wordSelectionDragStarted(session))
+
+            case .wordSelectionDragUpdated(let currentPoint):
+                emit(.wordSelectionDragUpdated(session, currentPoint: currentPoint))
                 
             case .transitionedToUnsupportedPan:
                 tapSequenceRecognizer.cancelCandidate()
@@ -578,6 +594,12 @@ public final class TouchGestureRecognizer {
                 self.activeSession = nil
                 session.markIdle()
                 emit(.dragEnded(session, endPoint: global.cgGlobal))
+                firstContactLiftAt = nil
+
+            case .wordSelectionDrag:
+                self.activeSession = nil
+                session.markIdle()
+                emit(.wordSelectionDragEnded(session, endPoint: global.cgGlobal))
                 firstContactLiftAt = nil
 
             case .longPressCommitted:

@@ -11,6 +11,7 @@ public enum GestureState: Equatable, CustomStringConvertible {
     case possibleTap        // One-finger tap candidate while movement remains within touch slop
     case directPan          // Active continuous two-finger pan (or direct-touch one-finger scroll)
     case directDrag         // Active one-finger pointer drag (slider/titlebar/edge or hold-then-drag)
+    case wordSelectionDrag  // Double-tap-hold-drag word-by-word selection (clickState: 2)
     case longPressCommitted // Stationary hold committed to context menu (suppresses tap on release)
     case releasePending     // Final lift seen; bounded momentum decision lease remains open
     case momentum           // Kinetic coasting after flick release
@@ -27,6 +28,7 @@ public enum GestureState: Equatable, CustomStringConvertible {
         case .possibleTap: return "POSSIBLE_TAP"
         case .directPan: return "DIRECT_PAN"
         case .directDrag: return "DIRECT_DRAG"
+        case .wordSelectionDrag: return "WORD_SELECTION_DRAG"
         case .longPressCommitted: return "LONG_PRESS_COMMITTED"
         case .releasePending: return "RELEASE_PENDING"
         case .momentum: return "MOMENTUM"
@@ -197,10 +199,12 @@ public enum GestureTransitionAction {
     case none
     case transitionedToPan(initialValue: Double)
     case transitionedToDrag(deltaPixels: CGVector)
+    case transitionedToWordSelectionDrag
     case transitionedToUnsupportedPan
     case cancelledMovement
     case panValueUpdated(targetValue: Double, deltaPixels: CGVector)
     case dragUpdated(currentPoint: CGPoint, deltaPixels: CGVector)
+    case wordSelectionDragUpdated(currentPoint: CGPoint)
 }
 
 /// Represents one explicit physical contact session (P3-02 Section 2 & P3-03R).
@@ -215,6 +219,7 @@ public final class InteractionSession {
     public var interruptedActiveMomentum: Bool = false
     public private(set) var dwelledWithinLongPressSlop: Bool = false
     private var exceededLongPressSlopBeforeDwell: Bool = false
+    public var isWordSelectionCandidate: Bool = false
     
     public let startTimeMach: UInt64
     public let startTimeDate: Date
@@ -231,6 +236,7 @@ public final class InteractionSession {
     public var diagnosticBackend: String {
         if state == .directPan || state == .releasePending || state == .momentum { return "CG_SCROLL_WHEEL" }
         if state == .directDrag { return "CG_POINTER_DRAG" }
+        if state == .wordSelectionDrag { return "WORD_SELECTION_DRAG" }
         if state == .longPressCommitted { return "CONTEXT_MENU" }
         return "TAP_INTENT_READY"
     }
@@ -431,6 +437,16 @@ public final class InteractionSession {
         
         switch state {
         case .possibleTap:
+            // 0. Word Selection Drag Candidate (Tap 2 down, held and moved > 4.0 pt)
+            if isWordSelectionCandidate && dist > 4.0 {
+                self.timeToPanSec = totalElapsedSec
+                self.movementAtPanTransitionPt = dist
+                state = .wordSelectionDrag
+                transitionDescription = "possibleTap -> wordSelectionDrag"
+                panActionResult = "Word selection drag active (clickState: 2)"
+                return .transitionedToWordSelectionDrag
+            }
+
             // 1. Direct-Drag Control (Slider, Scrollbar, Splitter, Window Title Bar, Window Resize Edge)
             if directTouchModeEnabled,
                context?.isDirectDragControl == true,
@@ -499,6 +515,9 @@ public final class InteractionSession {
         case .directDrag:
             let deltaPixels = CGVector(dx: frameDx, dy: frameDy)
             return .dragUpdated(currentPoint: global.cgGlobal, deltaPixels: deltaPixels)
+            
+        case .wordSelectionDrag:
+            return .wordSelectionDragUpdated(currentPoint: global.cgGlobal)
             
         case .longPressCommitted, .unsupportedPan, .idle, .tapExecuted, .cancelled, .releasePending, .momentum:
             return .none

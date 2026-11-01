@@ -185,6 +185,7 @@ public final class TransientPointerTapBackend {
 
     /// Active 1-finger drag state. Guaranteed to emit `leftMouseUp` on `endDrag` or `cancelDrag`.
     public private(set) var isDragging: Bool = false
+    public private(set) var isWordSelectionDrag: Bool = false
     public private(set) var lastDragPoint: CGPoint? = nil
     private var dragSnapshot: PointerMouseActivitySnapshot? = nil
 
@@ -213,6 +214,11 @@ public final class TransientPointerTapBackend {
     }
 
     @discardableResult
+    public func performTripleClick(at point: CGPoint, appName: String? = nil) -> PointerTransactionResult {
+        performButtonTransaction(at: point, downType: .leftMouseDown, upType: .leftMouseUp, clickState: 3, appName: appName)
+    }
+
+    @discardableResult
     public func performRightClick(at point: CGPoint, appName: String? = nil) -> PointerTransactionResult {
         performButtonTransaction(at: point, downType: .rightMouseDown, upType: .rightMouseUp, clickState: 1, appName: appName)
     }
@@ -229,13 +235,14 @@ public final class TransientPointerTapBackend {
         down.clickState = 1
         operations.post(down)
         isDragging = true
+        isWordSelectionDrag = false
         lastDragPoint = startPoint
         dragSnapshot = operations.pointerActivitySnapshot()
         return true
     }
 
     public func updateDrag(to currentPoint: CGPoint) {
-        guard isDragging else { return }
+        guard isDragging && !isWordSelectionDrag else { return }
         if let dragSnapshot, operations.pointerActivitySnapshot().generation != dragSnapshot.generation {
             TouchBridgeLogger.info(.semantic, "Direct touch drag interrupted by physical mouse activity. Yielding control to physical mouse.")
             cancelDrag()
@@ -250,7 +257,7 @@ public final class TransientPointerTapBackend {
     }
 
     public func endDrag(at endPoint: CGPoint) {
-        guard isDragging else { return }
+        guard isDragging && !isWordSelectionDrag else { return }
         isDragging = false
         dragSnapshot = nil
         _ = operations.warpCursor(to: endPoint)
@@ -261,14 +268,64 @@ public final class TransientPointerTapBackend {
         lastDragPoint = nil
     }
 
+    @discardableResult
+    public func beginWordSelectionDrag(at startPoint: CGPoint) -> Bool {
+        if isDragging {
+            cancelDrag()
+        }
+        guard operations.warpCursor(to: startPoint),
+              let down = operations.makeMouseEvent(type: .leftMouseDown, at: startPoint) else {
+            return false
+        }
+        down.clickState = 2
+        operations.post(down)
+        isDragging = true
+        isWordSelectionDrag = true
+        lastDragPoint = startPoint
+        dragSnapshot = operations.pointerActivitySnapshot()
+        TouchBridgeLogger.info(.semantic, "Started word selection drag (clickState: 2) at \(startPoint)")
+        return true
+    }
+
+    public func updateWordSelectionDrag(to currentPoint: CGPoint) {
+        guard isDragging && isWordSelectionDrag else { return }
+        if let dragSnapshot, operations.pointerActivitySnapshot().generation != dragSnapshot.generation {
+            TouchBridgeLogger.info(.semantic, "Word selection drag interrupted by physical mouse activity. Yielding control to physical mouse.")
+            cancelDrag()
+            return
+        }
+        _ = operations.warpCursor(to: currentPoint)
+        if let drag = operations.makeMouseEvent(type: .leftMouseDragged, at: currentPoint) {
+            drag.clickState = 2
+            operations.post(drag)
+        }
+        lastDragPoint = currentPoint
+    }
+
+    public func endWordSelectionDrag(at endPoint: CGPoint) {
+        guard isDragging && isWordSelectionDrag else { return }
+        isDragging = false
+        isWordSelectionDrag = false
+        dragSnapshot = nil
+        _ = operations.warpCursor(to: endPoint)
+        if let up = operations.makeMouseEvent(type: .leftMouseUp, at: endPoint) {
+            up.clickState = 2
+            operations.post(up)
+        }
+        lastDragPoint = nil
+        TouchBridgeLogger.info(.semantic, "Ended word selection drag (clickState: 2) at \(endPoint)")
+    }
+
     /// Unconditionally releases any held mouse-down state (on disconnect, disable, or gesture cancellation).
     public func cancelDrag() {
         guard isDragging else { return }
+        let releaseClickState: Int64 = isWordSelectionDrag ? 2 : 1
         isDragging = false
+        isWordSelectionDrag = false
         dragSnapshot = nil
         let releasePoint = lastDragPoint ?? operations.cursorPosition() ?? .zero
         if let up = operations.makeMouseEvent(type: .leftMouseUp, at: releasePoint) {
-            up.clickState = 1
+            up.clickState = releaseClickState
             operations.post(up)
         }
         lastDragPoint = nil

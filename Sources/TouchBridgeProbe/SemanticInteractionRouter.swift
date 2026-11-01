@@ -85,6 +85,7 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
 
     /// Cleanly aborts any active scroll, momentum, release lease, or held mouse drag.
     public func resetGestureState() {
+        KeyboardPopoverController.shared.dismiss()
         haltMomentum()
         cancelReleaseLeaseTimers()
         haltFingerDownSmoothing()
@@ -118,6 +119,8 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
             gestureRecognizer(recognizer, didResolveTapWithSession: session)
         case .pairedSecondTap(let session):
             gestureRecognizer(recognizer, didResolveDoubleTapWithSession: session)
+        case .tripleTap(let session):
+            gestureRecognizer(recognizer, didResolveTripleTapWithSession: session)
         case .contextMenu(let session):
             gestureRecognizer(recognizer, didResolveContextMenuWithSession: session)
         case .cancelledOneFingerMovement(let session, let reason), .cancelled(let session, let reason):
@@ -136,6 +139,12 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
             gestureRecognizer(recognizer, didUpdateDragWithSession: session, currentPoint: currentPoint)
         case .dragEnded(let session, let endPoint):
             gestureRecognizer(recognizer, didEndDragWithSession: session, endPoint: endPoint)
+        case .wordSelectionDragStarted(let session):
+            gestureRecognizer(recognizer, didStartWordSelectionDragWithSession: session)
+        case .wordSelectionDragUpdated(let session, let currentPoint):
+            gestureRecognizer(recognizer, didUpdateWordSelectionDragWithSession: session, currentPoint: currentPoint)
+        case .wordSelectionDragEnded(let session, let endPoint):
+            gestureRecognizer(recognizer, didEndWordSelectionDragWithSession: session, endPoint: endPoint)
         case .magnifyUpdated(let session, let phase, let magnification):
             gestureRecognizer(recognizer, didUpdateMagnifyWithSession: session, phase: phase, magnification: magnification)
         case .rotateUpdated(let session, let phase, let rotationDegrees):
@@ -323,6 +332,78 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
         session.panActionResult = "DIRECT_DRAG_COMPLETED on [\(appName)] at (\(Int(endPoint.x)),\(Int(endPoint.y)))"
         delegate?.semanticRouter(self, didUpdateFeedback: "Drag Completed [\(appName)]", invariantPassed: true)
         delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
+    }
+
+    public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didStartWordSelectionDragWithSession session: InteractionSession) {
+        haltMomentum()
+        haltFingerDownSmoothing()
+        session.interactionIntent = "WORD_SELECTION_DRAG"
+        guard userIntent == .enabled else { return }
+
+        let startPt = session.startGlobalPoint.cgGlobal
+        let currentPt = session.latestGlobalPoint.cgGlobal
+        let started = transientPointerBackend.beginWordSelectionDrag(at: startPt)
+        if started {
+            transientPointerBackend.updateWordSelectionDrag(to: currentPt)
+            let appName = session.context?.applicationName ?? "Application"
+            session.panActionResult = "WORD_SELECTION_DRAG_STARTED on [\(appName)]"
+            delegate?.semanticRouter(self, didUpdateFeedback: "Word Selection Drag [\(appName)]", invariantPassed: true)
+        }
+    }
+
+    public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didUpdateWordSelectionDragWithSession session: InteractionSession, currentPoint: CGPoint) {
+        guard userIntent == .enabled else { return }
+        transientPointerBackend.updateWordSelectionDrag(to: currentPoint)
+    }
+
+    public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didEndWordSelectionDragWithSession session: InteractionSession, endPoint: CGPoint) {
+        guard userIntent == .enabled else {
+            transientPointerBackend.cancelDrag()
+            return
+        }
+        transientPointerBackend.endWordSelectionDrag(at: endPoint)
+        let appName = session.context?.applicationName ?? "Application"
+        session.panActionResult = "WORD_SELECTION_DRAG_COMPLETED on [\(appName)]"
+        delegate?.semanticRouter(self, didUpdateFeedback: "Word Selection Drag Completed [\(appName)]", invariantPassed: true)
+        delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
+    }
+
+    public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didResolveTripleTapWithSession session: InteractionSession) {
+        haltMomentum()
+        haltFingerDownSmoothing()
+        session.interactionIntent = "TRIPLE_TAP"
+        guard userIntent == .enabled else { return }
+
+        let target = session.startGlobalPoint.cgGlobal
+        let appName = session.context?.applicationName
+
+        let result = transientPointerBackend.performTripleClick(at: target, appName: appName)
+        session.tapActionResult = result.succeeded ? "TRANSIENT_POINTER_TRIPLE_CLICK" : "TRANSIENT_POINTER_TRIPLE_CLICK_FAILED"
+
+        delegate?.semanticRouter(
+            self,
+            didUpdateFeedback: result.succeeded ? "Paragraph Selected [\(appName ?? "Application")]" : "Triple Tap Failed",
+            invariantPassed: result.restoreResult == "SUCCESS" && (result.finalDisplacement.map { $0 <= 1.0 } ?? false)
+        )
+        delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
+
+        // Check if editable text input
+        var isEditable = false
+        if let ctx = session.context {
+            isEditable = ctx.isTextInputControl || ctx.hitNode.isValueSettable
+        } else if AXPermissionManager.shared.isTrusted() {
+            let (elem, _, err) = AXSemanticEngine.shared.probeElementAt(globalCG: target)
+            if err == .success, let elem {
+                let ctx = AXCapabilityInspector.shared.discoverContext(element: elem, maxAncestors: 4)
+                isEditable = ctx.isTextInputControl || ctx.hitNode.isValueSettable
+            }
+        }
+
+        if isEditable {
+            KeyboardPopoverController.shared.present(near: target) {
+                SystemVirtualKeyboardManager.shared.setVisible(true)
+            }
+        }
     }
 
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didUpdateMagnifyWithSession session: InteractionSession, phase: Int64, magnification: Double) {
