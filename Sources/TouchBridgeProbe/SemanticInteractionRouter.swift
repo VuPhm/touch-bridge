@@ -15,6 +15,9 @@ public extension SemanticInteractionRouterDelegate {
     func semanticRouter(_ router: SemanticInteractionRouter, didCompleteSession session: InteractionSession, evidenceBlock: String) {}
 }
 
+typealias MomentumTickScheduler = (TimeInterval, @escaping () -> Void) -> (() -> Void)
+typealias ReleaseLeaseScheduler = (TimeInterval, @escaping () -> Void) -> (() -> Void)
+
 public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
     public weak var delegate: SemanticInteractionRouterDelegate?
 
@@ -43,24 +46,83 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
     /// Unsafe experimental cursor restoration prototype; never enabled by the product path.
     public var enableCGCursorRestoreExperiment: Bool = false
 
-    // Kinetic momentum state (P3-03R Phase C)
-    private var momentumTimer: Timer? = nil
+    // Kinetic momentum state (P3-03R Phase C & P3-06 Tuning)
+    private var cancelMomentumTimer: (() -> Void)? = nil
+    private var momentumTickScheduler: MomentumTickScheduler = { interval, tick in
+        let timer = Timer(timeInterval: interval, repeats: true) { _ in tick() }
+        RunLoop.main.add(timer, forMode: .common)
+        return { timer.invalidate() }
+    }
+    private var releaseLeaseScheduler: ReleaseLeaseScheduler = { interval, action in
+        let timer = Timer(timeInterval: interval, repeats: false) { _ in action() }
+        RunLoop.main.add(timer, forMode: .common)
+        return { timer.invalidate() }
+    }
+    private var cancelReleaseSettle: (() -> Void)?
+    private var cancelReleaseCeiling: (() -> Void)?
+    private weak var releaseLeaseRecognizer: TouchGestureRecognizer?
+    private var releaseLeaseSession: InteractionSession?
+    private var releaseLeaseStartedAt: Date?
     private var activeMomentumSession: InteractionSession? = nil
     private weak var momentumRecognizer: TouchGestureRecognizer?
     private var currentMomentumVelocity: CGVector = .zero
+    private var momentumElapsedSec: Double = 0
+    private var momentumAccumulatedDistancePt: Double = 0
+    private var momentumFrameCount: Int = 0
+    private var momentumTimerTickCount: Int = 0
     private var fingerDownSmoothingTimer: Timer? = nil
     private var fingerDownSmoothingTail: FingerDownSmoothingTail? = nil
     private var lastDirectPanVelocityY: Double = 0
+    private var lastDirectPanVelocity: CGVector = .zero
+    private var lastDirectPanVelocityAt: Date?
     private var loggedDirectScrollFields = false
     private var loggedMomentumFields = false
+    private var usesCustomMomentumSchedulerForTesting = false
+    private var lastMomentumTickUptime: TimeInterval = 0
+    public var showKeyboardPillOnTextTap: Bool = false
 
     public init() {}
+
+    /// Cleanly aborts any active scroll, momentum, release lease, or held mouse drag.
+    public func resetGestureState() {
+        KeyboardPopoverController.shared.dismiss()
+        haltMomentum()
+        cancelReleaseLeaseTimers()
+        haltFingerDownSmoothing()
+        if let active = activeMomentumSession {
+            activeScrollBackend?.cancel(session: active, reason: "ROUTER_RESET")
+        }
+        activeScrollBackend = nil
+        activeMomentumSession = nil
+        momentumRecognizer = nil
+        releaseLeaseSession = nil
+        releaseLeaseRecognizer = nil
+        transientPointerBackend.cancelDrag()
+    }
+
+    // Deterministic runtime validation can advance momentum frames without wall-clock sleeps.
+    func setMomentumTickSchedulerForTesting(_ scheduler: @escaping MomentumTickScheduler) {
+        stopMomentumTimer()
+        usesCustomMomentumSchedulerForTesting = true
+        momentumTickScheduler = scheduler
+    }
+
+    func setReleaseLeaseSchedulerForTesting(_ scheduler: @escaping ReleaseLeaseScheduler) {
+        cancelReleaseLeaseTimers()
+        releaseLeaseScheduler = scheduler
+    }
 
     /// Delivery policy boundary between recognized intent and OS mechanisms.
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didEmit intent: InteractionIntent) {
         switch intent {
         case .tap(let session):
             gestureRecognizer(recognizer, didResolveTapWithSession: session)
+        case .pairedSecondTap(let session):
+            gestureRecognizer(recognizer, didResolveDoubleTapWithSession: session)
+        case .tripleTap(let session):
+            gestureRecognizer(recognizer, didResolveTripleTapWithSession: session)
+        case .contextMenu(let session):
+            gestureRecognizer(recognizer, didResolveContextMenuWithSession: session)
         case .cancelledOneFingerMovement(let session, let reason), .cancelled(let session, let reason):
             gestureRecognizer(recognizer, didCancelSession: session, reason: reason)
         case .directPanStarted(let session):
@@ -71,6 +133,22 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
             gestureRecognizer(recognizer, didUpdatePanWithSession: session, targetValue: targetValue)
         case .directPanEnded(let session):
             gestureRecognizer(recognizer, didCompletePanWithSession: session)
+        case .dragStarted(let session):
+            gestureRecognizer(recognizer, didStartDragWithSession: session)
+        case .dragUpdated(let session, let currentPoint, _):
+            gestureRecognizer(recognizer, didUpdateDragWithSession: session, currentPoint: currentPoint)
+        case .dragEnded(let session, let endPoint):
+            gestureRecognizer(recognizer, didEndDragWithSession: session, endPoint: endPoint)
+        case .wordSelectionDragStarted(let session):
+            gestureRecognizer(recognizer, didStartWordSelectionDragWithSession: session)
+        case .wordSelectionDragUpdated(let session, let currentPoint):
+            gestureRecognizer(recognizer, didUpdateWordSelectionDragWithSession: session, currentPoint: currentPoint)
+        case .wordSelectionDragEnded(let session, let endPoint):
+            gestureRecognizer(recognizer, didEndWordSelectionDragWithSession: session, endPoint: endPoint)
+        case .magnifyUpdated(let session, let phase, let magnification):
+            gestureRecognizer(recognizer, didUpdateMagnifyWithSession: session, phase: phase, magnification: magnification)
+        case .rotateUpdated(let session, let phase, let rotationDegrees):
+            gestureRecognizer(recognizer, didUpdateRotateWithSession: session, phase: phase, rotationDegrees: rotationDegrees)
         case .momentumStarted(let session, let velocity):
             gestureRecognizer(recognizer, didEnterMomentumWithSession: session, initialVelocity: velocity)
         case .momentumInterrupted(let session):
@@ -86,8 +164,7 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
     }
 
     deinit {
-        haltMomentum()
-        haltFingerDownSmoothing()
+        resetGestureState()
     }
 
     // MARK: - TouchGestureRecognizerDelegate
@@ -157,10 +234,208 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
         executeCapabilityAuthorizedTap(session: session)
     }
 
+    private func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didResolveDoubleTapWithSession session: InteractionSession) {
+        session.interactionIntent = "PAIRED_SECOND_TAP"
+        session.deliveryPolicy = tapBackendMode.diagnosticName
+        session.deliveryBackend = InteractionDeliveryPolicy.tapMechanism(mode: tapBackendMode).rawValue
+        session.axEnrichmentStatus = "NOT_REQUIRED"
+        TouchBridgeLogger.info(.gesture, "Intent: PAIRED_SECOND_TAP")
+        guard userIntent == .enabled else {
+            session.tapActionResult = "Suppressed (UserIntent Disabled)"
+            delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
+            return
+        }
+
+        if tapBackendMode == .transientPointer {
+            let result = transientPointerBackend.performPairedClick(
+                at: session.startGlobalPoint.cgGlobal,
+                appName: session.context?.applicationName
+            )
+            session.tapActionResult = result.succeeded ? "TRANSIENT_POINTER_DOUBLE_CLICK" : "TRANSIENT_POINTER_DOUBLE_CLICK_FAILED"
+            delegate?.semanticRouter(
+                self,
+                didUpdateFeedback: result.succeeded ? "Transient Pointer Double Click" : "Transient Pointer Double Click Failed",
+                invariantPassed: result.restoreResult == "SUCCESS" && (result.finalDisplacement.map { $0 <= 1.0 } ?? false)
+            )
+            delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
+            return
+        }
+
+        // Semantic-only diagnostics cannot carry native CGEvent clickState.
+        // Route the paired contact through the existing semantic tap mechanism.
+        gestureRecognizer(recognizer, didResolveTapWithSession: session)
+    }
+
+    public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didResolveContextMenuWithSession session: InteractionSession) {
+        session.interactionIntent = "CONTEXT_MENU"
+        session.deliveryPolicy = tapBackendMode.diagnosticName
+        TouchBridgeLogger.info(.gesture, "Intent: CONTEXT_MENU")
+        guard userIntent == .enabled else {
+            session.tapActionResult = "Suppressed (UserIntent Disabled)"
+            delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
+            return
+        }
+
+        if tapBackendMode == .transientPointer {
+            let appName = session.context?.applicationName
+            let result = transientPointerBackend.performRightClick(
+                at: session.startGlobalPoint.cgGlobal,
+                appName: appName
+            )
+            session.tapActionResult = result.succeeded ? "TRANSIENT_POINTER_RIGHT_CLICK" : "TRANSIENT_POINTER_RIGHT_CLICK_FAILED"
+            delegate?.semanticRouter(
+                self,
+                didUpdateFeedback: result.succeeded ? "Context Menu [\(appName ?? "Application")]" : "Context Menu Failed",
+                invariantPassed: result.restoreResult == "SUCCESS" && (result.finalDisplacement.map { $0 <= 1.0 } ?? false)
+            )
+            delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
+            return
+        }
+
+        if let element = session.context?.hitElement {
+            let err = AXUIElementPerformAction(element, kAXShowMenuAction as CFString)
+            session.tapActionResult = err == .success ? "AX_SHOW_MENU_SUCCESS" : "AX_SHOW_MENU_FAILED(\(err.rawValue))"
+            delegate?.semanticRouter(self, didUpdateFeedback: session.tapActionResult, invariantPassed: true)
+            delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
+        }
+    }
+
+    public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didStartDragWithSession session: InteractionSession) {
+        haltMomentum()
+        haltFingerDownSmoothing()
+        session.interactionIntent = "DIRECT_DRAG"
+        guard userIntent == .enabled else { return }
+
+        let startPt = session.startGlobalPoint.cgGlobal
+        let currentPt = session.latestGlobalPoint.cgGlobal
+        let started = transientPointerBackend.beginDrag(at: startPt)
+        if started {
+            transientPointerBackend.updateDrag(to: currentPt)
+            let appName = session.context?.applicationName ?? "Application"
+            session.panActionResult = "DIRECT_DRAG_STARTED on [\(appName)]"
+            delegate?.semanticRouter(self, didUpdateFeedback: "Drag Started [\(appName)]", invariantPassed: true)
+        }
+    }
+
+    public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didUpdateDragWithSession session: InteractionSession, currentPoint: CGPoint) {
+        guard userIntent == .enabled else { return }
+        transientPointerBackend.updateDrag(to: currentPoint)
+    }
+
+    public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didEndDragWithSession session: InteractionSession, endPoint: CGPoint) {
+        guard userIntent == .enabled else {
+            transientPointerBackend.cancelDrag()
+            return
+        }
+        transientPointerBackend.endDrag(at: endPoint)
+        let appName = session.context?.applicationName ?? "Application"
+        session.panActionResult = "DIRECT_DRAG_COMPLETED on [\(appName)] at (\(Int(endPoint.x)),\(Int(endPoint.y)))"
+        delegate?.semanticRouter(self, didUpdateFeedback: "Drag Completed [\(appName)]", invariantPassed: true)
+        delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
+    }
+
+    public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didStartWordSelectionDragWithSession session: InteractionSession) {
+        haltMomentum()
+        haltFingerDownSmoothing()
+        session.interactionIntent = "WORD_SELECTION_DRAG"
+        guard userIntent == .enabled else { return }
+
+        let startPt = session.startGlobalPoint.cgGlobal
+        let currentPt = session.latestGlobalPoint.cgGlobal
+        let started = transientPointerBackend.beginWordSelectionDrag(at: startPt)
+        if started {
+            transientPointerBackend.updateWordSelectionDrag(to: currentPt)
+            let appName = session.context?.applicationName ?? "Application"
+            session.panActionResult = "WORD_SELECTION_DRAG_STARTED on [\(appName)]"
+            delegate?.semanticRouter(self, didUpdateFeedback: "Word Selection Drag [\(appName)]", invariantPassed: true)
+        }
+    }
+
+    public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didUpdateWordSelectionDragWithSession session: InteractionSession, currentPoint: CGPoint) {
+        guard userIntent == .enabled else { return }
+        transientPointerBackend.updateWordSelectionDrag(to: currentPoint)
+    }
+
+    public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didEndWordSelectionDragWithSession session: InteractionSession, endPoint: CGPoint) {
+        guard userIntent == .enabled else {
+            transientPointerBackend.cancelDrag()
+            return
+        }
+        transientPointerBackend.endWordSelectionDrag(at: endPoint)
+        let appName = session.context?.applicationName ?? "Application"
+        session.panActionResult = "WORD_SELECTION_DRAG_COMPLETED on [\(appName)]"
+        delegate?.semanticRouter(self, didUpdateFeedback: "Word Selection Drag Completed [\(appName)]", invariantPassed: true)
+        delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
+    }
+
+    public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didResolveTripleTapWithSession session: InteractionSession) {
+        haltMomentum()
+        haltFingerDownSmoothing()
+        session.interactionIntent = "TRIPLE_TAP"
+        guard userIntent == .enabled else { return }
+
+        let target = session.startGlobalPoint.cgGlobal
+        let appName = session.context?.applicationName
+
+        let result = transientPointerBackend.performTripleClick(at: target, appName: appName)
+        session.tapActionResult = result.succeeded ? "TRANSIENT_POINTER_TRIPLE_CLICK" : "TRANSIENT_POINTER_TRIPLE_CLICK_FAILED"
+
+        delegate?.semanticRouter(
+            self,
+            didUpdateFeedback: result.succeeded ? "Paragraph Selected [\(appName ?? "Application")]" : "Triple Tap Failed",
+            invariantPassed: result.restoreResult == "SUCCESS" && (result.finalDisplacement.map { $0 <= 1.0 } ?? false)
+        )
+        delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
+
+        // Check if editable text input
+        var isEditable = false
+        if let ctx = session.context {
+            isEditable = ctx.isTextInputControl || ctx.hitNode.isValueSettable
+        } else if AXPermissionManager.shared.isTrusted() {
+            let (elem, _, err) = AXSemanticEngine.shared.probeElementAt(globalCG: target)
+            if err == .success, let elem {
+                let ctx = AXCapabilityInspector.shared.discoverContext(element: elem, maxAncestors: 4)
+                isEditable = ctx.isTextInputControl || ctx.hitNode.isValueSettable
+            }
+        }
+
+        if isEditable {
+            KeyboardPopoverController.shared.present(near: target) {
+                SystemVirtualKeyboardManager.shared.setVisible(true)
+            }
+        }
+    }
+
+    public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didUpdateMagnifyWithSession session: InteractionSession, phase: Int64, magnification: Double) {
+        guard userIntent == .enabled else { return }
+        let wid = session.context?.windowHitInfo?.windowID
+        _ = transientPointerBackend.postMagnify(
+            at: session.startGlobalPoint.cgGlobal,
+            phase: phase,
+            magnification: magnification,
+            windowID: wid
+        )
+        session.panActionResult = "NATIVE_MAGNIFY (phase=\(phase), mag=\(String(format: "%.3f", magnification)))"
+    }
+
+    public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didUpdateRotateWithSession session: InteractionSession, phase: Int64, rotationDegrees: Double) {
+        guard userIntent == .enabled else { return }
+        let wid = session.context?.windowHitInfo?.windowID
+        _ = transientPointerBackend.postRotate(
+            at: session.startGlobalPoint.cgGlobal,
+            phase: phase,
+            rotationDegrees: rotationDegrees,
+            windowID: wid
+        )
+        session.panActionResult = "NATIVE_ROTATE (phase=\(phase), deg=\(String(format: "%.2f", rotationDegrees)))"
+    }
+
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didStartPanWithSession session: InteractionSession) {
         haltMomentum()
         haltFingerDownSmoothing()
         lastDirectPanVelocityY = 0
+        lastDirectPanVelocity = .zero
+        lastDirectPanVelocityAt = nil
         loggedDirectScrollFields = false
 
         guard userIntent == .enabled else {
@@ -186,18 +461,22 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didUpdatePanDeltaWithSession session: InteractionSession, deltaPixels: CGVector) {
         guard userIntent == .enabled else { return }
 
-        if abs(deltaPixels.dy) > 0.01 {
-            haltFingerDownSmoothing()
-            lastDirectPanVelocityY = session.filteredVelocity.dy
-        } else if fingerDownSmoothingTimer == nil, abs(lastDirectPanVelocityY) > 1 {
-            fingerDownSmoothingTail = FingerDownSmoothingTail(velocityY: lastDirectPanVelocityY)
-            lastDirectPanVelocityY = 0
-            startFingerDownSmoothing(session: session)
+        if abs(deltaPixels.dx) > 0.01 || abs(deltaPixels.dy) > 0.01 {
+            lastDirectPanVelocity = session.filteredVelocity
+            lastDirectPanVelocityAt = session.lastMovementVelocitySampleAt
         }
 
+        if abs(deltaPixels.dy) > 0.01 {
+            lastDirectPanVelocityY = session.filteredVelocity.dy
+        } else {
+            lastDirectPanVelocityY = 0
+        }
+        // Zero trailing coast: do not emit synthetic tail deltas while finger is held still on screen
+        haltFingerDownSmoothing()
+
         activeScrollBackend?.update(
-            deltaY: deltaPixels.dy,
-            velocityY: session.filteredVelocity.dy,
+            delta: deltaPixels,
+            velocity: session.filteredVelocity,
             currentTouchPoint: session.latestGlobalPoint.cgGlobal
         )
     }
@@ -209,6 +488,14 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
 
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didCompletePanWithSession session: InteractionSession) {
         guard userIntent == .enabled else { return }
+        if session.state == .releasePending {
+            beginReleaseLease(session: session, recognizer: recognizer)
+            return
+        }
+        guard session.state != .momentum else {
+            TouchBridgeLogger.debug(.semantic, "Direct pan contact lifted -> Latching active backend for momentum.")
+            return
+        }
         haltMomentum()
         haltFingerDownSmoothing()
 
@@ -233,61 +520,172 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
 
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didEnterMomentumWithSession session: InteractionSession, initialVelocity: CGVector) {
         guard userIntent == .enabled else { return }
+        guard activeScrollBackend != nil else {
+            TouchBridgeLogger.error(.semantic, "P3-06R3 momentum_start rejected: selected scroll backend already ended.")
+            return
+        }
         haltMomentum()
         haltFingerDownSmoothing()
+        if releaseLeaseSession === session {
+            cancelReleaseSettle?()
+            cancelReleaseSettle = nil
+        }
 
         self.activeMomentumSession = session
         self.momentumRecognizer = recognizer
-        self.currentMomentumVelocity = initialVelocity
+        self.momentumElapsedSec = 0
+        self.momentumAccumulatedDistancePt = 0
+        self.momentumTimerTickCount = 0
+        self.lastMomentumTickUptime = ProcessInfo.processInfo.systemUptime
         loggedMomentumFields = false
 
-        let dt: Double = 0.016
-        let initialStep = initialVelocity.dy * dt
-        activeScrollBackend?.momentumUpdate(deltaY: initialStep, velocityY: initialVelocity.dy)
+        let isFallback = activeScrollBackend is TransientPointerScrollBackend
+        let maxVelocity = isFallback ?
+            GestureArbitrationConfig.compatibilityMaxReleaseVelocityPtPerSec :
+            GestureArbitrationConfig.maxReleaseVelocityPtPerSec
+        let decayFactor = isFallback ?
+            GestureArbitrationConfig.compatibilityMomentumDecayFactor :
+            GestureArbitrationConfig.momentumDecayFactor
+        let stopVelocity = isFallback ?
+            GestureArbitrationConfig.compatibilityMinMomentumVelocityPtPerSec :
+            GestureArbitrationConfig.minMomentumVelocityPtPerSec
+        let maxDuration = isFallback ?
+            GestureArbitrationConfig.compatibilityMaxMomentumDurationSec :
+            GestureArbitrationConfig.maxMomentumDurationSec
+        let maxDistance = isFallback ?
+            GestureArbitrationConfig.compatibilityMaxMomentumDistancePt :
+            GestureArbitrationConfig.maxMomentumDistancePt
 
-        let initialSpeed = hypot(initialVelocity.dx, initialVelocity.dy)
-        TouchBridgeLogger.info(
-            .semantic,
-            "Kinetic Momentum Started: speed=\(String(format: "%.1f", initialSpeed)) pt/s, initialStep=\(String(format: "%.2f", initialStep)) px"
+        // Clamp starting release velocity to prevent uncontrolled overshoots
+        var clampedVel = initialVelocity
+        let speed = hypot(clampedVel.dx, clampedVel.dy)
+        if speed > maxVelocity && speed > 0 {
+            let scale = maxVelocity / speed
+            clampedVel.dx *= scale
+            clampedVel.dy *= scale
+        }
+        self.currentMomentumVelocity = clampedVel
+
+        let dt: Double = 0.016
+        let initialStepX = clampedVel.dx * dt
+        let initialStepY = clampedVel.dy * dt
+        let initialStepMag = hypot(initialStepX, initialStepY)
+        self.momentumAccumulatedDistancePt += initialStepMag
+        momentumFrameCount = 1
+        activeScrollBackend?.momentumUpdate(
+            delta: CGVector(dx: initialStepX, dy: initialStepY),
+            velocity: clampedVel
         )
 
-        self.momentumTimer = Timer.scheduledTimer(withTimeInterval: dt, repeats: true) { [weak self] timer in
-            guard let self = self, let active = self.activeMomentumSession else {
-                timer.invalidate()
-                return
-            }
+        let initialSpeed = hypot(clampedVel.dx, clampedVel.dy)
+        let backendName = activeScrollBackend?.diagnosticName ?? (isFallback ? "TRANSIENT_POINTER_FALLBACK" : "AX_SEMANTIC")
+        TouchBridgeLogger.info(
+            .semantic,
+            "P3-06R3 momentum_start: backend=\(backendName) speed=\(String(format: "%.1f", initialSpeed))pt/s raw=\(String(format: "%.1f", speed)) initialDelta=\(String(format: "%.2f", initialStepY))pt decay=\(decayFactor) cutoff=\(stopVelocity)pt/s maxDur=\(maxDuration)s maxDist=\(maxDistance)pt"
+        )
 
-            self.currentMomentumVelocity.dy *= GestureArbitrationConfig.momentumDecayFactor
-            let speed = abs(self.currentMomentumVelocity.dy)
-            let step = self.currentMomentumVelocity.dy * dt
-
-            if speed < GestureArbitrationConfig.minMomentumVelocityPtPerSec {
-                // Natural momentum termination
-                timer.invalidate()
-                self.momentumTimer = nil
-                self.activeScrollBackend?.end(session: active)
-                self.activeScrollBackend = nil
-                active.markMomentumEnded()
-                TouchBridgeLogger.info(.semantic, "Kinetic momentum settled naturally.")
-                self.delegate?.semanticRouter(self, didCompleteSession: active, evidenceBlock: active.formattedEvidenceBlock())
-                self.momentumRecognizer?.momentumDidEnd(active)
-                self.activeMomentumSession = nil
-                self.momentumRecognizer = nil
-            } else {
-                // Continuous kinetic momentum step
-                self.activeScrollBackend?.momentumUpdate(deltaY: step, velocityY: self.currentMomentumVelocity.dy)
-            }
+        self.cancelMomentumTimer = momentumTickScheduler(dt) { [weak self] in
+            guard let self else { return }
+            self.momentumTimerTickCount += 1
+            self.advanceMomentumFrame(
+                interval: dt,
+                decayFactor: decayFactor,
+                stopVelocity: stopVelocity,
+                maxDuration: maxDuration,
+                maxDistance: maxDistance
+            )
         }
+        TouchBridgeLogger.info(.semantic, "P3-06R3 momentum_timer scheduled: intervalMs=16.")
+    }
+
+    private func advanceMomentumFrame(
+        interval dt: Double,
+        decayFactor: Double,
+        stopVelocity: Double,
+        maxDuration: Double,
+        maxDistance: Double
+    ) {
+        guard let active = activeMomentumSession else {
+            stopMomentumTimer()
+            return
+        }
+
+        let effectiveDt: Double
+        let effectiveDecay: Double
+        if usesCustomMomentumSchedulerForTesting {
+            effectiveDt = dt
+            effectiveDecay = decayFactor
+        } else {
+            let nowUptime = ProcessInfo.processInfo.systemUptime
+            let rawElapsed = nowUptime - lastMomentumTickUptime
+            lastMomentumTickUptime = nowUptime
+            effectiveDt = min(0.050, max(0.004, rawElapsed > 0 ? rawElapsed : dt))
+            effectiveDecay = pow(decayFactor, effectiveDt / dt)
+        }
+
+        momentumElapsedSec += effectiveDt
+        currentMomentumVelocity.dx *= effectiveDecay
+        currentMomentumVelocity.dy *= effectiveDecay
+        let currentSpeed = hypot(currentMomentumVelocity.dx, currentMomentumVelocity.dy)
+        let stepX = currentMomentumVelocity.dx * effectiveDt
+        let stepY = currentMomentumVelocity.dy * effectiveDt
+        let stepMag = hypot(stepX, stepY)
+        momentumAccumulatedDistancePt += stepMag
+        momentumFrameCount += 1
+
+        let reachedLimit = currentSpeed < stopVelocity ||
+                           momentumElapsedSec >= maxDuration ||
+                           momentumAccumulatedDistancePt >= maxDistance
+        let termination = currentSpeed < stopVelocity ? "speed_cutoff" :
+            (momentumElapsedSec >= maxDuration ? "max_duration" :
+                (momentumAccumulatedDistancePt >= maxDistance ? "max_distance" : "none"))
+        TouchBridgeLogger.info(
+            .semantic,
+            "P3-06R3 momentum_tick: timerTick=\(momentumTimerTickCount) frame=\(momentumFrameCount) elapsedMs=\(Int((momentumElapsedSec * 1000).rounded())) velocityY=\(String(format: "%.1f", currentMomentumVelocity.dy)) deltaY=\(String(format: "%.3f", stepY)) delivery=\(reachedLimit ? "skipped_at_termination" : "sent_to_backend") termination=\(termination)"
+        )
+        guard reachedLimit else {
+            activeScrollBackend?.momentumUpdate(
+                delta: CGVector(dx: stepX, dy: stepY),
+                velocity: currentMomentumVelocity
+            )
+            return
+        }
+
+        let reason: String
+        if currentSpeed < stopVelocity {
+            reason = "speed_cutoff (\(String(format: "%.1f", currentSpeed)) < \(String(format: "%.1f", stopVelocity)) pt/s)"
+        } else if momentumElapsedSec >= maxDuration {
+            reason = "max_duration (\(String(format: "%.3f", momentumElapsedSec))s >= \(String(format: "%.3f", maxDuration))s)"
+        } else {
+            reason = "max_distance (\(String(format: "%.1f", momentumAccumulatedDistancePt))pt >= \(String(format: "%.1f", maxDistance))pt)"
+        }
+
+        let elapsed = momentumElapsedSec
+        let distance = momentumAccumulatedDistancePt
+        let frames = momentumFrameCount
+        TouchBridgeLogger.info(
+            .semantic,
+            "P3-06R3 momentum_timer stopped: reason=\(reason), dur=\(String(format: "%.3f", elapsed))s, dist=\(String(format: "%.1f", distance))pt, frames=\(frames), endSpeed=\(String(format: "%.1f", currentSpeed))pt/s."
+        )
+        finishReleaseTransaction(active, reason: "momentum_\(reason)")
     }
 
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didInterruptMomentumWithSession session: InteractionSession) {
         haltFingerDownSmoothing()
+        if releaseLeaseSession === session {
+            TouchBridgeLogger.info(.semantic, "P3-06R2 release lease interrupted by retouch; cancel timers and close previous backend exactly once.")
+            finishReleaseTransaction(session, reason: "retouch_during_release_or_momentum")
+            return
+        }
         if let active = activeMomentumSession {
+            let elapsed = momentumElapsedSec
+            let distance = momentumAccumulatedDistancePt
             haltMomentum()
-            activeScrollBackend?.end(session: active)
-            activeScrollBackend = nil
-            active.markMomentumEnded()
-            TouchBridgeLogger.info(.semantic, "Kinetic momentum INTERRUPTED immediately by new touch contact.")
+            finishReleaseTransaction(active, reason: "retouch_during_momentum")
+            TouchBridgeLogger.info(
+                .semantic,
+                "Kinetic momentum INTERRUPTED immediately by new touch: dur=\(String(format: "%.3f", elapsed))s, dist=\(String(format: "%.1f", distance))pt."
+            )
             self.activeMomentumSession = nil
             self.momentumRecognizer = nil
         }
@@ -307,6 +705,11 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
     }
 
     public func gestureRecognizer(_ recognizer: TouchGestureRecognizer, didCancelSession session: InteractionSession, reason: String) {
+        transientPointerBackend.cancelDrag()
+        if releaseLeaseSession === session {
+            finishReleaseTransaction(session, reason: "cancelled_\(reason)")
+            return
+        }
         haltMomentum()
         activeScrollBackend?.cancel(session: session, reason: reason)
         activeScrollBackend = nil
@@ -629,10 +1032,82 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
     }
 
     private func haltMomentum() {
-        if let timer = momentumTimer {
-            timer.invalidate()
-            momentumTimer = nil
+        stopMomentumTimer()
+        momentumElapsedSec = 0
+        momentumAccumulatedDistancePt = 0
+        momentumFrameCount = 0
+    }
+
+    private func stopMomentumTimer() {
+        cancelMomentumTimer?()
+        cancelMomentumTimer = nil
+    }
+
+    private func beginReleaseLease(session: InteractionSession, recognizer: TouchGestureRecognizer) {
+        guard activeScrollBackend != nil else {
+            TouchBridgeLogger.error(.semantic, "P3-06R2 releasePending rejected: no selected scroll backend remains.")
+            session.markMomentumEnded()
+            recognizer.releaseLifecycleDidEnd(session)
+            return
         }
+        cancelReleaseLeaseTimers()
+        releaseLeaseSession = session
+        releaseLeaseRecognizer = recognizer
+        releaseLeaseStartedAt = session.releasePendingAt ?? Date()
+        let backendName = activeScrollBackend?.diagnosticName ?? "unknown"
+        TouchBridgeLogger.info(
+            .semantic,
+            "P3-06R2 release_lease_started: backend=\(backendName) settleMs=\(Int(GestureArbitrationConfig.releaseSettleWindowSec * 1000)) ceilingMs=\(Int(GestureArbitrationConfig.releaseTransactionCeilingSec * 1000)) lastDirectVelocity=\(String(format: "%.1f,%.1f", lastDirectPanVelocity.dx, lastDirectPanVelocity.dy)) lastDirectSampleAt=\(lastDirectPanVelocityAt.map { String(format: "%.3f", $0.timeIntervalSince1970) } ?? "none")"
+        )
+        cancelReleaseSettle = releaseLeaseScheduler(GestureArbitrationConfig.releaseSettleWindowSec) { [weak self, weak session] in
+            guard let self, let session else { return }
+            self.releaseSettleExpired(session)
+        }
+        cancelReleaseCeiling = releaseLeaseScheduler(GestureArbitrationConfig.releaseTransactionCeilingSec) { [weak self, weak session] in
+            guard let self, let session else { return }
+            self.releaseCeilingExpired(session)
+        }
+    }
+
+    private func releaseSettleExpired(_ session: InteractionSession) {
+        guard releaseLeaseSession === session, session.state == .releasePending else { return }
+        TouchBridgeLogger.info(.semantic, "P3-06R2 release_settle_expired: no momentum started within \(Int(GestureArbitrationConfig.releaseSettleWindowSec * 1000))ms; ending backend and restoring once if safe.")
+        finishReleaseTransaction(session, reason: "release_settle_expired_no_momentum")
+    }
+
+    private func releaseCeilingExpired(_ session: InteractionSession) {
+        guard releaseLeaseSession === session else { return }
+        let age = releaseLeaseStartedAt.map { Date().timeIntervalSince($0) } ?? 0
+        TouchBridgeLogger.error(.semantic, "P3-06R2 release_hard_ceiling: closing stuck release transaction after \(String(format: "%.0f", age * 1000))ms.")
+        finishReleaseTransaction(session, reason: "release_hard_ceiling")
+    }
+
+    private func finishReleaseTransaction(_ session: InteractionSession, reason: String) {
+        let timerScheduled = cancelMomentumTimer != nil
+        let timerTicks = momentumTimerTickCount
+        let releaseAgeMs = releaseLeaseStartedAt.map { Date().timeIntervalSince($0) * 1000 } ?? 0
+        stopMomentumTimer()
+        cancelReleaseLeaseTimers()
+        activeScrollBackend?.end(session: session)
+        activeScrollBackend = nil
+        session.markMomentumEnded()
+        TouchBridgeLogger.info(.semantic, "P3-06R2 backend_end: reason=\(reason) releaseAgeMs=\(String(format: "%.1f", releaseAgeMs)) momentumTimerScheduled=\(timerScheduled) timerTicks=\(timerTicks); release transaction closed.")
+        delegate?.semanticRouter(self, didCompleteSession: session, evidenceBlock: session.formattedEvidenceBlock())
+        let recognizer = releaseLeaseRecognizer ?? momentumRecognizer
+        recognizer?.releaseLifecycleDidEnd(session)
+        activeMomentumSession = nil
+        momentumRecognizer = nil
+        momentumTimerTickCount = 0
+        releaseLeaseRecognizer = nil
+        releaseLeaseSession = nil
+        releaseLeaseStartedAt = nil
+    }
+
+    private func cancelReleaseLeaseTimers() {
+        cancelReleaseSettle?()
+        cancelReleaseSettle = nil
+        cancelReleaseCeiling?()
+        cancelReleaseCeiling = nil
     }
 
     private func probeElement(at globalCG: CGPoint) {
@@ -657,3 +1132,103 @@ public final class InteractionDeliveryRouter: TouchGestureRecognizerDelegate {
 
 /// Source compatibility for existing integrations that used the P3-02 name.
 public typealias SemanticInteractionRouter = InteractionDeliveryRouter
+
+// MARK: - On-Screen Keyboard Controller (Text Input Helper)
+
+public final class OnScreenKeyboardController: NSObject {
+    public static let shared = OnScreenKeyboardController()
+
+    private var pillPanel: NSPanel?
+    private var dismissTimer: Timer?
+    private let assistiveControlURL = URL(fileURLWithPath: "/System/Library/Input Methods/AssistiveControl.app")
+
+    private override init() {
+        super.init()
+    }
+
+    @objc public func toggleOnScreenKeyboard() {
+        dismissPill()
+        let running = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.inputmethod.AssistiveControl")
+        if let app = running.first, !app.isTerminated {
+            app.terminate()
+            TouchBridgeLogger.info(.lifecycle, "On-screen Accessibility Keyboard hidden.")
+            return
+        }
+        let config = NSWorkspace.OpenConfiguration()
+        config.activates = false
+        NSWorkspace.shared.openApplication(at: assistiveControlURL, configuration: config) { _, error in
+            if let error {
+                TouchBridgeLogger.warning(.lifecycle, "Could not launch AssistiveControl.app: \(error.localizedDescription)")
+            } else {
+                TouchBridgeLogger.info(.lifecycle, "On-screen Accessibility Keyboard opened.")
+            }
+        }
+    }
+
+    public func showFloatingPill(near globalCGPoint: CGPoint) {
+        DispatchQueue.main.async { [weak self] in
+            self?.presentPillOnMain(near: globalCGPoint)
+        }
+    }
+
+    public func dismissPill() {
+        DispatchQueue.main.async { [weak self] in
+            self?.dismissTimer?.invalidate()
+            self?.dismissTimer = nil
+            self?.pillPanel?.orderOut(nil)
+        }
+    }
+
+    private func presentPillOnMain(near globalCGPoint: CGPoint) {
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 1080.0
+        let appKitPoint = NSPoint(x: globalCGPoint.x, y: primaryHeight - globalCGPoint.y)
+
+        let width: CGFloat = 116
+        let height: CGFloat = 34
+        let origin = NSPoint(x: appKitPoint.x - width / 2.0, y: max(20, appKitPoint.y - height - 28))
+
+        let panel: NSPanel
+        if let existing = pillPanel {
+            panel = existing
+            panel.setFrameOrigin(origin)
+        } else {
+            let created = NSPanel(
+                contentRect: NSRect(origin: origin, size: NSSize(width: width, height: height)),
+                styleMask: [.borderless, .nonactivatingPanel],
+                backing: .buffered,
+                defer: false
+            )
+            created.isFloatingPanel = true
+            created.level = .statusBar
+            created.backgroundColor = .clear
+            created.isOpaque = false
+            created.hasShadow = true
+            created.hidesOnDeactivate = false
+            created.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+
+            let container = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+            container.material = .hudWindow
+            container.state = .active
+            container.wantsLayer = true
+            container.layer?.cornerRadius = 17
+            container.layer?.masksToBounds = true
+
+            let button = NSButton(title: "⌨️ Bàn phím", target: self, action: #selector(toggleOnScreenKeyboard))
+            button.frame = container.bounds
+            button.isBordered = false
+            button.font = NSFont.systemFont(ofSize: 12.5, weight: .semibold)
+            button.contentTintColor = .white
+            container.addSubview(button)
+
+            created.contentView = container
+            self.pillPanel = created
+            panel = created
+        }
+
+        panel.orderFrontRegardless()
+        dismissTimer?.invalidate()
+        dismissTimer = Timer.scheduledTimer(withTimeInterval: 4.5, repeats: false) { [weak self] _ in
+            self?.pillPanel?.orderOut(nil)
+        }
+    }
+}

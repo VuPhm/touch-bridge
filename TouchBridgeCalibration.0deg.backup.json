@@ -1,0 +1,95 @@
+{
+  "affineMatrix" : {
+    "a" : 1326.1211001776055,
+    "b" : 8.081965461363325,
+    "c" : -4.331922044841804,
+    "d" : 952.0575965621906,
+    "tx" : -26.78369219355818,
+    "ty" : 5.438797333188177
+  },
+  "backingScaleFactor" : 1,
+  "createdAt" : "2026-09-25T08:25:36Z",
+  "deviceName" : "USB2IIC_CTP_CONTROL",
+  "deviceProductID" : 58851,
+  "deviceVendorID" : 6790,
+  "displayHeight" : 960,
+  "displayID" : 79846407,
+  "displayModelNumber" : 2416,
+  "displayName" : "TYPE C",
+  "displaySerialNumber" : 1,
+  "displayVendorNumber" : 9747,
+  "displayWidth" : 1280,
+  "maxResidualError" : 5.2874309802349995,
+  "meanResidualError" : 5.207044702660639,
+  "points" : [
+    {
+      "label" : "Top-Left (Point 1\/4)",
+      "normalizedSensor" : {
+        "u" : 0.0703125,
+        "v" : 0.06640625
+      },
+      "rawSensor" : {
+        "x" : 288,
+        "y" : 272
+      },
+      "targetLocalCG" : [
+        64,
+        64
+      ]
+    },
+    {
+      "label" : "Top-Right (Point 2\/4)",
+      "normalizedSensor" : {
+        "u" : 0.9345703125,
+        "v" : 0.061279296875
+      },
+      "rawSensor" : {
+        "x" : 3828,
+        "y" : 251
+      },
+      "targetLocalCG" : [
+        1216,
+        64
+      ]
+    },
+    {
+      "label" : "Bottom-Right (Point 3\/4)",
+      "normalizedSensor" : {
+        "u" : 0.93359375,
+        "v" : 0.944091796875
+      },
+      "rawSensor" : {
+        "x" : 3824,
+        "y" : 3867
+      },
+      "targetLocalCG" : [
+        1216,
+        896
+      ]
+    },
+    {
+      "label" : "Bottom-Left (Point 4\/4)",
+      "normalizedSensor" : {
+        "u" : 0.060546875,
+        "v" : 0.93115234375
+      },
+      "rawSensor" : {
+        "x" : 248,
+        "y" : 3814
+      },
+      "targetLocalCG" : [
+        64,
+        896
+      ]
+    }
+  ],
+  "residualErrors" : [
+    5.2874309802349995,
+    5.180007756234018,
+    5.126658425086549,
+    5.234081649086987
+  ],
+  "rotationDegrees" : 0,
+  "transformType" : "affine",
+  "version" : 1
+}

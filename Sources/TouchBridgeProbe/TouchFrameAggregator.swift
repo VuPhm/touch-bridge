@@ -47,6 +47,23 @@ public struct TouchSample: CustomStringConvertible {
     public var normalizedSensorPoint: NormalizedSensorPoint {
         NormalizedSensorPoint(u: normX, v: normY)
     }
+
+    private static var timebaseInfo: mach_timebase_info = {
+        var info = mach_timebase_info()
+        mach_timebase_info(&info)
+        return info
+    }()
+
+    public static func machTimeToSeconds(_ machTicks: UInt64) -> Double {
+        let nanos = Double(machTicks) * Double(timebaseInfo.numer) / Double(timebaseInfo.denom)
+        return nanos / 1_000_000_000.0
+    }
+
+    public static func secondsToMachTime(_ seconds: Double) -> UInt64 {
+        let nanos = seconds * 1_000_000_000.0
+        let ticks = nanos * Double(timebaseInfo.denom) / Double(timebaseInfo.numer)
+        return UInt64(ticks)
+    }
     
     public var description: String {
         String(format: "TouchSample [%-4@] +%6.3fs Raw: (%4d, %4d) Norm: (%.4f, %.4f) Slot: %d ID: %d",

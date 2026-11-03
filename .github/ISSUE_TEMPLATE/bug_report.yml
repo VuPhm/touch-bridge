@@ -1,0 +1,45 @@
+name: Báo cáo lỗi (Bug Report)
+description: Gửi báo cáo lỗi gặp phải khi sử dụng TouchBridge
+title: "[BUG] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Cảm ơn bạn đã gửi báo cáo lỗi. Vui lòng cung cấp đầy đủ thông tin bên dưới để giúp việc tái hiện và khắc phục diễn ra nhanh chóng.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Mô tả lỗi
+      description: Mô tả chi tiết vấn đề bạn gặp phải.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Các bước tái hiện
+      description: Hướng dẫn từng bước để quan sát thấy lỗi.
+      placeholder: |
+        1. Mở TouchBridge...
+        2. Dùng 1 ngón chạm vào...
+        3. Quan sát thấy...
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Môi trường sử dụng
+      description: Đời máy Mac, phiên bản macOS, tên màn hình cảm ứng ngoài.
+      placeholder: "MacBook Pro 16-inch 2019 (Intel), macOS 14.8.9, Màn hình TYPE C USB-C"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Nhật ký chẩn đoán (Logs)
+      description: Dán nội dung xuất ra từ nút 'Xuất Báo Cáo Chẩn Đoán' trong tab Chẩn đoán của app hoặc /tmp/touchbridge_dev.log.
+      render: shell

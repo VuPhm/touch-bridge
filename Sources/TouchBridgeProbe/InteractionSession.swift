@@ -9,7 +9,11 @@ import ApplicationServices
 public enum GestureState: Equatable, CustomStringConvertible {
     case idle
     case possibleTap        // One-finger tap candidate while movement remains within touch slop
-    case directPan          // Active continuous two-finger pan (or experimental one-finger pan)
+    case directPan          // Active continuous two-finger pan (or direct-touch one-finger scroll)
+    case directDrag         // Active one-finger pointer drag (slider/titlebar/edge or hold-then-drag)
+    case wordSelectionDrag  // Double-tap-hold-drag word-by-word selection (clickState: 2)
+    case longPressCommitted // Stationary hold committed to context menu (suppresses tap on release)
+    case releasePending     // Final lift seen; bounded momentum decision lease remains open
     case momentum           // Kinetic coasting after flick release
     case unsupportedPan     // Two-finger pan has no scroll backend
     case tapExecuted        // Released while in possibleTap -> Tap successfully dispatched
@@ -23,6 +27,10 @@ public enum GestureState: Equatable, CustomStringConvertible {
         case .idle: return "IDLE"
         case .possibleTap: return "POSSIBLE_TAP"
         case .directPan: return "DIRECT_PAN"
+        case .directDrag: return "DIRECT_DRAG"
+        case .wordSelectionDrag: return "WORD_SELECTION_DRAG"
+        case .longPressCommitted: return "LONG_PRESS_COMMITTED"
+        case .releasePending: return "RELEASE_PENDING"
         case .momentum: return "MOMENTUM"
         case .unsupportedPan: return "UNSUPPORTED_PAN"
         case .tapExecuted: return "TAP_EXECUTED"
@@ -38,6 +46,9 @@ public enum InteractionResultType: String, Codable {
     case tapSelectionSuccess  = "TAP_SELECTION_SUCCESS"
     case tapMenuSuccess       = "TAP_MENU_SUCCESS"
     case tapCGClickSuccess    = "TAP_CG_CLICK_SUCCESS"
+    case contextMenuSuccess   = "CONTEXT_MENU_SUCCESS"
+    case dragStarted          = "DRAG_STARTED"
+    case dragCompleted        = "DRAG_COMPLETED"
     
     case panStarted           = "PAN_STARTED"
     case panUpdated           = "PAN_UPDATED"
@@ -60,6 +71,24 @@ public struct GestureArbitrationConfig {
 
     /// Diagnostic escape hatch for the retired one-finger pan behavior. Product defaults to false.
     public static var experimentalOneFingerPanEnabled: Bool = false
+
+    /// Movement slop for immediate 1-finger drag on direct-manipulation controls (sliders, scrollbars, titlebars, window edges).
+    public static var directDragControlSlopPt: Double = 8.0
+
+    /// Movement slop for hold-then-drag and stationary long-press context menu.
+    public static var longPressSlopPt: Double = 12.0
+
+    /// Minimum dwell duration within `longPressSlopPt` before movement transitions into 1-finger precision drag (file drag / text selection).
+    public static var holdForDragDurationSec: TimeInterval = 0.240
+
+    /// Minimum stationary hold duration within `longPressSlopPt` to trigger context menu (right-click).
+    public static var longPressContextMenuDurationSec: TimeInterval = 0.480
+
+    /// Minimum 2-finger span delta in points to trigger native pinch-to-zoom (`magnify`).
+    public static var pinchActivationSpanDeltaPt: Double = 24.0
+
+    /// Minimum 2-finger rotation angle delta in degrees to trigger native `rotate`.
+    public static var rotateActivationAngleDeg: Double = 10.0
     
     /// Minimum contact duration to filter out electrical glitches or micro-bounces (15 ms).
     public static var minTapDurationSec: Double = 0.015
@@ -73,16 +102,75 @@ public struct GestureArbitrationConfig {
     /// Minimum scroll value delta to prevent floating-point noise updates.
     public static var minScrollValueDelta: Double = 0.0008
     
-    /// Kinetic momentum parameters (P3-03R Phase C)
-    public static var minFlickVelocityPtPerSec: Double = 60.0
-    public static var momentumDecayFactor: Double = 0.94
-    public static var minMomentumVelocityPtPerSec: Double = 10.0
+    // MARK: - Release Momentum Parameters (P3-06R Corrected)
+
+    /// Minimum release speed required to trigger a release glide.
+    /// Below this threshold, scrolling terminates cleanly with 0 coasting.
+    public static var minFlickVelocityPtPerSec: Double = 80.0
+
+    /// Upper clamp on starting release speed for AX semantic scrolling.
+    /// Clamping prevents high-speed flings from overshooting uncontrollably.
+    public static var maxReleaseVelocityPtPerSec: Double = 1100.0
+
+    /// Monotonic velocity decay rate per frame (~60 Hz).
+    /// 0.915 yields a smooth, perceptible deceleration curve over ~250-440 ms.
+    public static var momentumDecayFactor: Double = 0.915
+
+    /// Early cut-off speed threshold. Below this, momentum terminates naturally
+    /// to avoid an imperceptible crawling tail.
+    public static var minMomentumVelocityPtPerSec: Double = 50.0
+
+    /// Hard cap on maximum momentum duration for AX scrolling (in seconds).
+    public static var maxMomentumDurationSec: Double = 0.440
+
+    /// Hard cap on maximum accumulated coast distance for AX scrolling (in points).
+    public static var maxMomentumDistancePt: Double = 350.0
+
+    // MARK: - Compatibility Backend (Transient Pointer) Momentum Constraints
+
+    /// Upper clamp on starting release speed for compatibility fallback scrolling.
+    public static var compatibilityMaxReleaseVelocityPtPerSec: Double = 550.0
+
+    /// Monotonic decay rate for compatibility fallback scrolling.
+    /// A modestly longer tail keeps medium releases perceptible without increasing launch speed.
+    public static var compatibilityMomentumDecayFactor: Double = 0.90
+
+    /// Early cut-off speed threshold for compatibility fallback scrolling.
+    public static var compatibilityMinMomentumVelocityPtPerSec: Double = 35.0
+
+    /// Hard cap on maximum momentum duration for compatibility fallback scrolling (in seconds).
+    /// Keeps a medium release perceptible while bounding the pointer transaction to a short coast.
+    public static var compatibilityMaxMomentumDurationSec: Double = 0.320
+
+    /// Hard cap on maximum accumulated coast distance for compatibility fallback scrolling (in points).
+    public static var compatibilityMaxMomentumDistancePt: Double = 100.0
+
+    /// A movement-derived sample must be this recent at final lift to qualify for release momentum.
+    public static let releaseVelocityMaximumAgeSec: TimeInterval = 0.120
+
+    /// Keep the selected backend alive briefly while a delayed release decision is delivered.
+    public static let releaseSettleWindowSec: TimeInterval = 0.120
+
+    /// Absolute safety bound for the pointer transaction after final release.
+    public static let releaseTransactionCeilingSec: TimeInterval = 0.440
+
+    public static func qualifiesForReleaseMomentum(_ velocity: CGVector) -> Bool {
+        hypot(velocity.dx, velocity.dy) >= minFlickVelocityPtPerSec
+    }
 
     /// Finger-down smoothing is intentionally separate from release momentum.
     public static let fingerDownSmoothingFrameIntervalSec: Double = 1.0 / 60.0
     public static let fingerDownSmoothingMaxDurationSec: Double = 0.080
     public static let fingerDownSmoothingDecayFactor: Double = 0.45
     public static let fingerDownSmoothingMaxDistancePt: Double = 4.0
+}
+
+public struct MovementVelocitySnapshot {
+    public let velocity: CGVector
+    public let sampledAt: Date
+    public let ageSec: TimeInterval
+
+    public var speed: Double { hypot(velocity.dx, velocity.dy) }
 }
 
 public struct FingerDownSmoothingTail {
@@ -110,9 +198,13 @@ public struct FingerDownSmoothingTail {
 public enum GestureTransitionAction {
     case none
     case transitionedToPan(initialValue: Double)
+    case transitionedToDrag(deltaPixels: CGVector)
+    case transitionedToWordSelectionDrag
     case transitionedToUnsupportedPan
     case cancelledMovement
     case panValueUpdated(targetValue: Double, deltaPixels: CGVector)
+    case dragUpdated(currentPoint: CGPoint, deltaPixels: CGVector)
+    case wordSelectionDragUpdated(currentPoint: CGPoint)
 }
 
 /// Represents one explicit physical contact session (P3-02 Section 2 & P3-03R).
@@ -123,6 +215,11 @@ public final class InteractionSession {
     public var secondaryContactID: Int? = nil
     public var allowCGScrollFallback: Bool = true
     public var experimentalOneFingerPanEnabled = GestureArbitrationConfig.experimentalOneFingerPanEnabled
+    public var directTouchModeEnabled: Bool = false
+    public var interruptedActiveMomentum: Bool = false
+    public private(set) var dwelledWithinLongPressSlop: Bool = false
+    private var exceededLongPressSlopBeforeDwell: Bool = false
+    public var isWordSelectionCandidate: Bool = false
     
     public let startTimeMach: UInt64
     public let startTimeDate: Date
@@ -137,14 +234,25 @@ public final class InteractionSession {
     public private(set) var currentMovementPt: Double = 0.0
     public private(set) var state: GestureState = .possibleTap
     public var diagnosticBackend: String {
-        if state == .directPan || state == .momentum { return "CG_SCROLL_WHEEL" }
+        if state == .directPan || state == .releasePending || state == .momentum { return "CG_SCROLL_WHEEL" }
+        if state == .directDrag { return "CG_POINTER_DRAG" }
+        if state == .wordSelectionDrag { return "WORD_SELECTION_DRAG" }
+        if state == .longPressCommitted { return "CONTEXT_MENU" }
         return "TAP_INTENT_READY"
     }
     
-    // Velocity tracking (P3-03R Phase B & C)
+    // Velocity tracking (P3-03R Phase B & C + Monotonic Hardware Timestamp)
     public private(set) var instantaneousVelocity: CGVector = .zero
     public private(set) var filteredVelocity: CGVector = .zero
+    private var lastMovementDerivedVelocity: CGVector = .zero
+    public private(set) var lastMovementVelocitySampleAt: Date?
+    public private(set) var lastMovementVelocitySampleMach: UInt64?
+    public private(set) var releasePendingAt: Date?
+    public private(set) var releaseSettleDeadline: Date?
+    public var scrollStabilizer = AdaptiveScrollStabilizer()
+    public private(set) var stationaryDwellDurationSec: Double = 0.0
     private var lastSampleTimeDate: Date
+    private var lastSampleTimeMach: UInt64
     private var lastSamplePoint: CGPoint
     
     // Cached Early Capability Context (P3-02 Section 4 & 9)
@@ -191,13 +299,15 @@ public final class InteractionSession {
         startSample: TouchSample,
         localPoint: DisplayLocalPoint,
         globalPoint: GlobalDisplayPoint,
-        context: AXInteractionContext?
+        context: AXInteractionContext?,
+        now: Date = Date()
     ) {
-        self.id = "SES-\(Int(Date().timeIntervalSince1970))-\(Int.random(in: 100...999))"
+        self.id = "SES-\(Int(now.timeIntervalSince1970))-\(Int.random(in: 100...999))"
         self.contactID = startSample.contactID
         self.startTimeMach = startSample.timestamp
-        self.startTimeDate = Date()
-        self.lastSampleTimeDate = self.startTimeDate
+        self.startTimeDate = now
+        self.lastSampleTimeDate = now
+        self.lastSampleTimeMach = startSample.timestamp
         self.lastSamplePoint = globalPoint.cgGlobal
         self.instantaneousVelocity = .zero
         self.filteredVelocity = .zero
@@ -217,7 +327,7 @@ public final class InteractionSession {
         self.visibleHeight = max(100.0, context?.scrollAreaHeight ?? 400.0)
         self.lastDispatchedScrollValue = initialVal
         self.lastDispatchedGlobalY = globalPoint.cgGlobal.y
-        self.lastScrollDispatchTime = Date()
+        self.lastScrollDispatchTime = now
         self.state = .possibleTap
         
         let cur = SafetyInvariants.currentCursorPosition()
@@ -255,7 +365,8 @@ public final class InteractionSession {
     public func handleMove(
         local: DisplayLocalPoint,
         global: GlobalDisplayPoint,
-        now: Date = Date()
+        now: Date = Date(),
+        timestampMach: UInt64 = 0
     ) -> GestureTransitionAction {
         self.latestLocalPoint = local
         self.latestGlobalPoint = global
@@ -268,29 +379,103 @@ public final class InteractionSession {
             maxMovementPt = dist
         }
         
-        // Calculate instantaneous and filtered velocity (P3-03R Phase B & C)
-        let dt = max(0.001, now.timeIntervalSince(lastSampleTimeDate))
+        // Calculate instantaneous and filtered velocity using monotonic hardware timestamp when available (>= 1ms)
+        let wallDt = now.timeIntervalSince(lastSampleTimeDate)
+        let machDt: Double
+        if timestampMach > 0 && lastSampleTimeMach > 0 && timestampMach > lastSampleTimeMach {
+            machDt = TouchSample.machTimeToSeconds(timestampMach - lastSampleTimeMach)
+        } else {
+            machDt = 0.0
+        }
+        let dt = (machDt >= 0.001 && machDt < 1.0) ? machDt : max(0.001, wallDt)
         let frameDx = global.cgGlobal.x - lastSamplePoint.x
         let frameDy = global.cgGlobal.y - lastSamplePoint.y
         let vx = frameDx / dt
         let vy = frameDy / dt
         self.instantaneousVelocity = CGVector(dx: vx, dy: vy)
         
-        let alpha = 0.35
+        let alpha = 0.45
         self.filteredVelocity = CGVector(
             dx: alpha * vx + (1.0 - alpha) * filteredVelocity.dx,
             dy: alpha * vy + (1.0 - alpha) * filteredVelocity.dy
         )
         self.lastSampleTimeDate = now
+        if timestampMach > 0 {
+            self.lastSampleTimeMach = timestampMach
+        }
         self.lastSamplePoint = global.cgGlobal
+        let frameDist = hypot(frameDx, frameDy)
+        if frameDist > 0.01 {
+            if frameDist >= 1.0 || hypot(vx, vy) >= 60.0 {
+                self.lastMovementDerivedVelocity = self.filteredVelocity
+                self.lastMovementVelocitySampleAt = now
+                if timestampMach > 0 {
+                    self.lastMovementVelocitySampleMach = timestampMach
+                }
+                self.stationaryDwellDurationSec = 0.0
+            } else {
+                self.stationaryDwellDurationSec += dt
+            }
+        } else {
+            self.stationaryDwellDurationSec += dt
+        }
+
+        // Track dwell-before-move for hold-then-drag disambiguation
+        let machTotalElapsed = (timestampMach > startTimeMach && startTimeMach > 0) ? TouchSample.machTimeToSeconds(timestampMach - startTimeMach) : 0.0
+        let totalElapsedSec = max(now.timeIntervalSince(startTimeDate), machTotalElapsed)
+        if maxMovementPt <= GestureArbitrationConfig.longPressSlopPt {
+            if totalElapsedSec >= GestureArbitrationConfig.holdForDragDurationSec && !exceededLongPressSlopBeforeDwell {
+                dwelledWithinLongPressSlop = true
+            }
+        } else {
+            if totalElapsedSec < GestureArbitrationConfig.holdForDragDurationSec {
+                exceededLongPressSlopBeforeDwell = true
+            } else if !exceededLongPressSlopBeforeDwell {
+                dwelledWithinLongPressSlop = true
+            }
+        }
         
         switch state {
         case .possibleTap:
+            // 0. Word Selection Drag Candidate (Tap 2 down, held and moved > 4.0 pt)
+            if isWordSelectionCandidate && dist > 4.0 {
+                self.timeToPanSec = totalElapsedSec
+                self.movementAtPanTransitionPt = dist
+                state = .wordSelectionDrag
+                transitionDescription = "possibleTap -> wordSelectionDrag"
+                panActionResult = "Word selection drag active (clickState: 2)"
+                return .transitionedToWordSelectionDrag
+            }
+
+            // 1. Direct-Drag Control (Slider, Scrollbar, Splitter, Window Title Bar, Window Resize Edge)
+            if directTouchModeEnabled,
+               context?.isDirectDragControl == true,
+               dist > GestureArbitrationConfig.directDragControlSlopPt {
+                self.timeToPanSec = totalElapsedSec
+                self.movementAtPanTransitionPt = dist
+                state = .directDrag
+                transitionDescription = "possibleTap -> directDrag (direct control)"
+                panActionResult = "One-finger direct control drag active"
+                return .transitionedToDrag(deltaPixels: CGVector(dx: dx, dy: dy))
+            }
+
+            // 2. Hold-Then-Drag (~0.24s dwell within slop, then move -> precision drag for files, text selection, custom UI)
+            if directTouchModeEnabled,
+               dwelledWithinLongPressSlop,
+               dist > GestureArbitrationConfig.longPressSlopPt {
+                self.timeToPanSec = totalElapsedSec
+                self.movementAtPanTransitionPt = dist
+                state = .directDrag
+                transitionDescription = "possibleTap -> directDrag (hold-then-drag)"
+                panActionResult = "One-finger precision hold-then-drag active"
+                return .transitionedToDrag(deltaPixels: CGVector(dx: dx, dy: dy))
+            }
+
             if dist > GestureArbitrationConfig.panThresholdPt {
-                self.timeToPanSec = now.timeIntervalSince(startTimeDate)
+                self.timeToPanSec = totalElapsedSec
                 self.movementAtPanTransitionPt = dist
 
-                guard experimentalOneFingerPanEnabled else {
+                guard experimentalOneFingerPanEnabled || directTouchModeEnabled else {
                     state = .cancelled(reason: "MOVEMENT_TOLERANCE_EXCEEDED")
                     transitionDescription = "possibleTap -> cancelled(movement tolerance exceeded)"
                     panActionResult = "One-finger movement cancelled; scrolling requires two contacts"
@@ -323,21 +508,36 @@ public final class InteractionSession {
             
         case .directPan:
             let targetValue = calculateTargetScrollValue(currentY: global.cgGlobal.y)
-            let deltaPixels = CGVector(dx: frameDx, dy: frameDy)
+            let rawDelta = CGVector(dx: frameDx, dy: frameDy)
+            let deltaPixels = scrollStabilizer.filterDelta(rawDelta: rawDelta, currentVelocity: filteredVelocity)
             return .panValueUpdated(targetValue: targetValue, deltaPixels: deltaPixels)
+
+        case .directDrag:
+            let deltaPixels = CGVector(dx: frameDx, dy: frameDy)
+            return .dragUpdated(currentPoint: global.cgGlobal, deltaPixels: deltaPixels)
             
-        case .unsupportedPan, .idle, .tapExecuted, .cancelled, .momentum:
+        case .wordSelectionDrag:
+            return .wordSelectionDragUpdated(currentPoint: global.cgGlobal)
+            
+        case .longPressCommitted, .unsupportedPan, .idle, .tapExecuted, .cancelled, .releasePending, .momentum:
             return .none
         }
     }
+
+    public func commitLongPressContextMenu() {
+        guard state == .possibleTap else { return }
+        state = .longPressCommitted
+        transitionDescription = "possibleTap -> longPressCommitted"
+        tapActionResult = "Context menu triggered (stationary long-press)"
+    }
     
     /// Immediate promotion to two-finger pan when a secondary contact arrives.
-    public func promoteToTwoFingerPan(centroid: CGPoint, now: Date = Date()) {
+    public func promoteToTwoFingerPan(centroid: CGPoint, now: Date = Date(), timestampMach: UInt64 = 0) {
         guard state == .possibleTap || state == .cancelled(reason: "MOVEMENT_TOLERANCE_EXCEEDED") else { return }
         self.contactCount = 2
         self.timeToPanSec = now.timeIntervalSince(startTimeDate)
         self.movementAtPanTransitionPt = currentMovementPt
-        rebaseMotion(point: centroid, now: now)
+        rebaseMotion(point: centroid, now: now, timestampMach: timestampMach)
         if hasValidContinuousScrollBackend() {
             state = .directPan
             transitionDescription = "possibleTap -> directPan (two-finger)"
@@ -354,24 +554,71 @@ public final class InteractionSession {
         }
     }
 
-    private func rebaseMotion(point: CGPoint, now: Date) {
+    private func rebaseMotion(point: CGPoint, now: Date, timestampMach: UInt64 = 0) {
         let rebased = GlobalDisplayPoint(cgGlobal: point)
         latestGlobalPoint = rebased
         instantaneousVelocity = .zero
         filteredVelocity = .zero
+        lastMovementDerivedVelocity = .zero
+        lastMovementVelocitySampleAt = nil
+        lastMovementVelocitySampleMach = nil
+        scrollStabilizer.reset()
+        stationaryDwellDurationSec = 0.0
         lastSamplePoint = point
         lastSampleTimeDate = now
+        if timestampMach > 0 {
+            lastSampleTimeMach = timestampMach
+        }
+    }
+
+    public func movementVelocitySnapshot(
+        asOf time: Date,
+        maximumAge: TimeInterval = GestureArbitrationConfig.releaseVelocityMaximumAgeSec
+    ) -> MovementVelocitySnapshot? {
+        guard let latest = latestMovementVelocitySnapshot(asOf: time), latest.ageSec <= maximumAge else { return nil }
+        return latest
+    }
+
+    public func latestMovementVelocitySnapshot(asOf time: Date) -> MovementVelocitySnapshot? {
+        // Suppress accidental momentum flick if finger dwelled stationary for >= 85ms before release
+        if stationaryDwellDurationSec >= 0.085 {
+            return nil
+        }
+        guard let sampledAt = lastMovementVelocitySampleAt else { return nil }
+        let age = time.timeIntervalSince(sampledAt)
+        let velocity = lastMovementDerivedVelocity
+        guard age >= 0,
+              velocity.dx.isFinite,
+              velocity.dy.isFinite,
+              hypot(velocity.dx, velocity.dy) > 0 else { return nil }
+        return MovementVelocitySnapshot(velocity: velocity, sampledAt: sampledAt, ageSec: age)
+    }
+
+    public func markReleasePending(at time: Date, settleWindow: TimeInterval = GestureArbitrationConfig.releaseSettleWindowSec) {
+        state = .releasePending
+        releasePendingAt = time
+        releaseSettleDeadline = time.addingTimeInterval(settleWindow)
+        transitionDescription = "directPan -> releasePending"
+        panActionResult = "Release settle lease pending momentum decision"
+    }
+
+    public func releaseDecisionIsOpen(at time: Date) -> Bool {
+        guard state == .releasePending, let deadline = releaseSettleDeadline else { return false }
+        return time <= deadline
     }
     
     public func markMomentumStarted() {
         state = .momentum
-        transitionDescription = "directPan -> momentum"
+        transitionDescription = releasePendingAt == nil ? "directPan -> momentum" : "releasePending -> momentum"
         panActionResult = "Kinetic momentum coasting"
     }
     
     public func markMomentumEnded() {
+        let priorState = state
         state = .idle
-        transitionDescription = "momentum -> idle"
+        releasePendingAt = nil
+        releaseSettleDeadline = nil
+        transitionDescription = priorState == .releasePending ? "releasePending -> idle" : "momentum -> idle"
         panActionResult = "Kinetic momentum ended"
     }
     

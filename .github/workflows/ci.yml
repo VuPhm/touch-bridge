@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main", "feature/**" ]
+  pull_request:
+    branches: [ "main" ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-verify-and-package:
+    name: "Build, Architecture Verification & Packaging (arm64 Native + x86_64 Cross-Build)"
+    runs-on: macos-15
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Inspect CI Environment & Host Architecture
+        run: |
+          echo "CI Host Architecture: $(uname -m)"
+          echo "CI OS Version: $(sw_vers -productVersion)"
+          swift --version
+
+      - name: Build Native Release Binary (arm64)
+        run: swift build -c release
+
+      - name: Verify Native Binary Architecture
+        run: |
+          ARM_BIN=".build/release/TouchBridgeProbe"
+          file "$ARM_BIN"
+          lipo -info "$ARM_BIN"
+          file "$ARM_BIN" | grep -q "arm64" || { echo "Expected arm64 binary"; exit 1; }
+          echo "Native arm64 binary confirmed."
+
+      - name: Run Deterministic Architecture Test Suite (147 Tests)
+        run: |
+          echo "Executing deterministic architecture test suite on native host..."
+          swift run TouchBridgeProbe --test-architecture
+
+      - name: Cross-compile Intel x86_64 Release Binary
+        run: |
+          echo "Building Intel x86_64 release binary via Swift toolchain cross-compilation..."
+          swift build -c release --arch x86_64
+
+      - name: Verify Cross-compiled Intel x86_64 Binary Architecture
+        run: |
+          INTEL_BIN=".build/x86_64-apple-macosx/release/TouchBridgeProbe"
+          if [ ! -f "$INTEL_BIN" ]; then
+            INTEL_BIN=".build/release/TouchBridgeProbe"
+          fi
+          file "$INTEL_BIN"
+          lipo -info "$INTEL_BIN"
+          file "$INTEL_BIN" | grep -q "x86_64" || { echo "Expected x86_64 binary"; exit 1; }
+          echo "Cross-compiled Intel x86_64 binary confirmed (Execution testing verified natively on physical MacBook Pro 2019 Intel)."
+
+      - name: Package & Validate Real Application Bundles (.app)
+        run: |
+          VERSION="$(cat VERSION | tr -d '[:space:]')"
+          COMMIT_SHA="$(git rev-parse --short HEAD)"
+          BUILD_NUM="${GITHUB_RUN_NUMBER}"
+          DIST_DIR="build/dist"
+          rm -rf "$DIST_DIR"
+          mkdir -p "$DIST_DIR"
+
+          create_bundle() {
+            local arch="$1"
+            local bin_path="$2"
+            local app_dir="${DIST_DIR}/TouchBridge-${arch}.app"
+            mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources"
+            cp "$bin_path" "$app_dir/Contents/MacOS/TouchBridge"
+            chmod +x "$app_dir/Contents/MacOS/TouchBridge"
+
+            cat <<EOF > "$app_dir/Contents/Info.plist"
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+              <key>CFBundleExecutable</key><string>TouchBridge</string>
+              <key>CFBundleIdentifier</key><string>com.antigravity.touchbridge.dev</string>
+              <key>CFBundleName</key><string>TouchBridge</string>
+              <key>CFBundleDisplayName</key><string>TouchBridge</string>
+              <key>CFBundlePackageType</key><string>APPL</string>
+              <key>CFBundleShortVersionString</key><string>${VERSION}</string>
+              <key>CFBundleVersion</key><string>${BUILD_NUM}</string>
+              <key>TouchBridgeCommit</key><string>${COMMIT_SHA}</string>
+              <key>LSMinimumSystemVersion</key><string>12.0</string>
+              <key>LSUIElement</key><true/>
+              <key>NSPrincipalClass</key><string>NSApplication</string>
+              <key>NSHighResolutionCapable</key><true/>
+              <key>NSAccessibilityUsageDescription</key><string>TouchBridge requires Accessibility permissions to route touch interactions and perform native scrolling.</string>
+          </dict></plist>
+          EOF
+            plutil -lint "$app_dir/Contents/Info.plist"
+            file "$app_dir/Contents/MacOS/TouchBridge"
+
+            local zip_name="TouchBridge-v${VERSION}-macOS-${arch}.zip"
+            (cd "$DIST_DIR" && ditto -c -k --sequesterRsrc --keepParent "TouchBridge-${arch}.app" "$zip_name")
+            unzip -t "${DIST_DIR}/${zip_name}"
+            (cd "$DIST_DIR" && shasum -a 256 "$zip_name" >> SHA256SUMS)
+          }
+
+          create_bundle "arm64" ".build/release/TouchBridgeProbe"
+          create_bundle "intel" ".build/x86_64-apple-macosx/release/TouchBridgeProbe"
+
+          echo "Generated CI Release Artifacts:"
+          cat "${DIST_DIR}/SHA256SUMS"

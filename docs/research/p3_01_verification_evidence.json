@@ -1,0 +1,355 @@
+{
+  "allPassed" : false,
+  "failedTests" : 4,
+  "passedTests" : 65,
+  "suiteName" : "TouchBridge P3-01 to P3-03 Runtime & Gesture Validation Suite",
+  "testResults" : [
+    {
+      "details" : "Verified non-boolean explicit domain representations with decoupled UserIntent and RuntimeCapability.",
+      "name" : "Test 1: Domain State Model & Intent Separation",
+      "passed" : true
+    },
+    {
+      "details" : "Profile #79846407 loads accurately; geometry alterations correctly trigger STALE state (Resolution changed (Profile was 1280x960, Active is 1920x1080)).",
+      "name" : "Test 2: Calibration Store & Stale Geometry Detection",
+      "passed" : true
+    },
+    {
+      "details" : "Mapped Sensor (0.5, 0.5) -> Local CG (640.3, 479.3), Global CG (2432.3, 639.3).",
+      "name" : "Test 3: Coordinate Mapper Precision",
+      "passed" : true
+    },
+    {
+      "details" : "Verified 0.0 pt cursor tolerance guard and immediate violation detection when delta > 0.001 pt.",
+      "name" : "Test 4: Safety Invariants & Pointer Isolation",
+      "passed" : true
+    },
+    {
+      "details" : "Initial launch invariant preserved: Hardware is Ready (Suspended (Target display missing)) but Engine is DISABLED (Intent=Disabled). Enable transitions to Suspended (Target display missing); Disable strictly forces Engine=Disabled.",
+      "name" : "Test 5: Explicit Enable\/Disable Invariant Gate",
+      "passed" : false
+    },
+    {
+      "details" : "Disconnect safely resets contacts and suspends engine (Suspended (Touchscreen disconnected)); Reconnect restores available state (Disconnected) and recovers engine (Suspended (Target display missing)) without restart.",
+      "name" : "Test 6: Device Lifecycle Disconnect\/Reconnect Recovery",
+      "passed" : false
+    },
+    {
+      "details" : "Incompatible display geometry or missing calibration strictly suspends interaction (Suspended (Target display missing)).",
+      "name" : "Test 7: Display Reconfiguration & Incompatible Geometry Guard",
+      "passed" : false
+    },
+    {
+      "details" : "Runtime cleanly unschedules IOHID runloop, closes passive IOHID connection, unregisters display callbacks.",
+      "name" : "Test 8: Clean Shutdown Callback Release",
+      "passed" : true
+    },
+    {
+      "details" : "Displays found: 0. Target external display not bound.",
+      "name" : "Test 9: Active Hardware Inspection",
+      "passed" : false
+    },
+    {
+      "details" : "Movement of 5.0 pt (< 18.0 pt threshold) remains in POSSIBLE_TAP state; no premature pan action emitted.",
+      "name" : "Test 10: Tap\/Pan Arbitration — Jitter Under Threshold",
+      "passed" : true
+    },
+    {
+      "details" : "Movement of 25.0 pt (> 18.0 pt) permanently cancels tap, transitions to SEMANTIC_PAN, and captures initial scroll value.",
+      "name" : "Test 11: Tap\/Pan Arbitration — Pan Threshold Transition",
+      "passed" : true
+    },
+    {
+      "details" : "Relative mapping verifies direct-touch direction (Up moves down content), zero drift on return (0.500), and min\/max bounds clamping.",
+      "name" : "Test 12: Semantic Pan Mapping — Relative Direct-Touch & Clamping",
+      "passed" : true
+    },
+    {
+      "details" : "Movement over threshold enters DIRECT_PAN because CG continuous scrolling is independent of AX scroll-area discovery.",
+      "name" : "Test 13: CG Direct Pan Without AX Scroll Area",
+      "passed" : true
+    },
+    {
+      "details" : "Early bounded discovery captures both actionable child (AXButton) and scrollable ancestor (AXScrollArea) in a single pass.",
+      "name" : "Test 14: Nested Controls Discovery — Child Button vs Ancestor Scroll Area",
+      "passed" : true
+    },
+    {
+      "details" : "TouchGestureRecognizer safely rejects concurrent secondary contacts; active primary contact is preserved without corruption.",
+      "name" : "Test 15: Single-Touch Invariant — Safe Rejection of Secondary Contacts",
+      "passed" : true
+    },
+    {
+      "details" : "Stationary contact (0.0 pt movement, 30ms duration) qualifies cleanly as Tap; zero pan events, zero delayed tap.",
+      "name" : "Test 16: P3-03 Clean Tap Arbitration",
+      "passed" : true
+    },
+    {
+      "details" : "Movement of 5.0 pt absorbed by tap deadband (<= 18.0 pt threshold); qualifies cleanly as Tap on release.",
+      "name" : "Test 17: P3-03 Tiny Jitter Tap Arbitration",
+      "passed" : true
+    },
+    {
+      "details" : "One contact moved 35.0 pt beyond touch slop; tap was cancelled with no pan\/scroll callback and no delayed tap.",
+      "name" : "Test 18: One-Finger Movement Cancels Without Scroll",
+      "passed" : true
+    },
+    {
+      "details" : "Slow 1.0 pt\/step movement accumulated correctly, transitioned to SEMANTIC_PAN at 19 pt, dispatched coalesced updates (4), zero tap.",
+      "name" : "Test 19: P3-03 Slow Pan Continuity",
+      "passed" : true
+    },
+    {
+      "details" : "Fast swipe transitioned to pan, dispatched initial scroll write immediately on transition report, and entered kinetic momentum upon release.",
+      "name" : "Test 20: P3-03 Fast Ballistic Pan & Immediate Initial Dispatch",
+      "passed" : true
+    },
+    {
+      "details" : "Stationary finger hold in pan mode correctly detected (isStationaryHold=true); 2.0 pt deadband suppressed redundant AX writes (1 == 1); zero oscillation.",
+      "name" : "Test 21: P3-03 Pan Hold Stationary — Zero Output Oscillation",
+      "passed" : true
+    },
+    {
+      "details" : "Pan 2 initialized with fresh baseline (movement=0.0 pt); zero residual displacement or state leakage from Pan 1.",
+      "name" : "Test 22: P3-03 Consecutive Pans — Zero State Carryover",
+      "passed" : true
+    },
+    {
+      "details" : "Subsequent stationary contact recognized cleanly as Tap; not converted to pan, zero delayed tap from previous pan.",
+      "name" : "Test 23: P3-03 Tap Immediately After Pan",
+      "passed" : true
+    },
+    {
+      "details" : "Non-AX surface entered DIRECT_PAN and emitted pan deltas without moving the physical cursor (delta: 0.00 pt).",
+      "name" : "Test 24: Non-AX Surface Direct Pan & Pointer Isolation",
+      "passed" : true
+    },
+    {
+      "details" : "17.5 pt remains in POSSIBLE_TAP; 18.5 pt locks SEMANTIC_PAN; returning to 17.0 pt remains strictly in SEMANTIC_PAN (never reverts to tap).",
+      "name" : "Test 25: P3-03 Boundary Movement Around Threshold — Invariant Locking",
+      "passed" : true
+    },
+    {
+      "details" : "Sub-15ms contact rejected as noise (CONTACT_TOO_BRIEF); zero tap dispatched.",
+      "name" : "Test 26: P3-03 Accidental Touch — Brief Glitch Noise Rejection",
+      "passed" : true
+    },
+    {
+      "details" : "Stationary finger held without exceeding touch slop qualifies cleanly as TAP upon release; arbitrary 850ms timeout eliminated.",
+      "name" : "Test 27: P3-03R Stationary Hold Permitted (No Arbitrary 850ms Cutoff)",
+      "passed" : true
+    },
+    {
+      "details" : "Two contacts detected and promoted intentionally to two-finger DIRECT_PAN; centroid displacement tracked without phantom system gestures.",
+      "name" : "Test 28: P3-03R Intentional Two-Finger Pan & Centroid Tracking",
+      "passed" : true
+    },
+    {
+      "details" : "Fast release entered kinetic momentum (velocity >= 60 pt\/s); subsequent touch down immediately interrupted active momentum.",
+      "name" : "Test 29: P3-03R Kinetic Momentum Flick & Immediate Touch Interruption",
+      "passed" : true
+    },
+    {
+      "details" : "Only target VID\/PID with a nonzero physical location ID and top-level usage page 0x0D \/ usage 0x04 qualifies for exclusive seize.",
+      "name" : "Test 30: Exact HID Digitizer Seize Qualification",
+      "passed" : true
+    },
+    {
+      "details" : "Matching VID\/PID does not override either usage check, and missing physical location identity is rejected.",
+      "name" : "Test 31: HID Wrong Top-Level Usage Rejected",
+      "passed" : true
+    },
+    {
+      "details" : "A failed exclusive open leaves interaction disabled; no shared-mode input is accepted.",
+      "name" : "Test 32: HID Seize Failure Fails Closed",
+      "passed" : true
+    },
+    {
+      "details" : "Two-finger gesture reaches CG_SCROLL_WHEEL without AX scroll discovery; cursor remains isolated.",
+      "name" : "Test 33: Two-Finger CG Scroll Without AX Scroll Area",
+      "passed" : true
+    },
+    {
+      "details" : "Second contact promotes the one-finger tap candidate to a two-finger pan; touchdown emits no synthetic delta\/velocity spike.",
+      "name" : "Test 34: 1-to-2 Contact Rebase Has No Delta Spike",
+      "passed" : true
+    },
+    {
+      "details" : "First lift stops direct updates and quarantines the remaining contact; full release starts momentum from the retained release velocity and clears the contact group.",
+      "name" : "Test 35: 2-to-1 Terminates Gesture (Primary Lifts First)",
+      "passed" : true
+    },
+    {
+      "details" : "First lift stops direct updates and quarantines the remaining contact; full release starts momentum from the retained release velocity and clears the contact group.",
+      "name" : "Test 36: 2-to-1 Terminates Gesture (Secondary Lifts First)",
+      "passed" : true
+    },
+    {
+      "details" : "Normal mode suppresses unresolved CG clicks; explicit compatibility mode is classified CG_PRIMARY_CLICK_CURSOR_MOVING, with no pointer-isolation claim.",
+      "name" : "Test 37: CG Fallback Is Explicitly Cursor-Moving",
+      "passed" : true
+    },
+    {
+      "details" : "Tail ended after 5 frames at 3.57 pt (limits 0.08s \/ 4.0 pt).",
+      "name" : "Test 38: Finger-Down Smoothing Tail Bounded",
+      "passed" : true
+    },
+    {
+      "details" : "Release momentum remains separate from finger-down smoothing and is synchronously interrupted on the next contact.",
+      "name" : "Test 39: Release Momentum Interrupted By New Touch",
+      "passed" : true
+    },
+    {
+      "details" : "AXGroup resolves its containing descendant AXButton at depth 1, then selects AX_PRESS.",
+      "name" : "Test 40: Actionable Resolver — Group to Button",
+      "passed" : true
+    },
+    {
+      "details" : "AXGroup resolves the point-containing AXLink and routes it through AX_PRESS.",
+      "name" : "Test 41: Actionable Resolver — Group to Link",
+      "passed" : true
+    },
+    {
+      "details" : "An AXGroup exposing only AXShowMenu is not an actionable primary tap target and is left unresolved.",
+      "name" : "Test 42: Actionable Resolver — ShowMenu Is Not Primary",
+      "passed" : true
+    },
+    {
+      "details" : "AXScrollArea resolves a point-containing actionable descendant within the bounded local subtree.",
+      "name" : "Test 43: Actionable Resolver — Scroll Area Child",
+      "passed" : true
+    },
+    {
+      "details" : "For overlapping actionable bounds, the deepest containing AX target wins deterministically.",
+      "name" : "Test 44: Actionable Resolver — Deepest Overlap Wins",
+      "passed" : true
+    },
+    {
+      "details" : "AXTextArea with settable AXFocused remains an eligible semantic focus target.",
+      "name" : "Test 45: Tap Routing — Text Area Focus",
+      "passed" : true
+    },
+    {
+      "details" : "AXMenuBarItem with AXPress continues to use the primary semantic press backend.",
+      "name" : "Test 46: Tap Routing — Menu Bar Item Press",
+      "passed" : true
+    },
+    {
+      "details" : "A failed AXPress is unsuccessful; routing advances to the explicit cursor-moving compatibility backend, which normal mode suppresses.",
+      "name" : "Test 47: Tap Routing — Failed Press Falls Through",
+      "passed" : true
+    },
+    {
+      "details" : "Default normal-tap handling reports SEMANTIC_UNRESOLVED and suppresses any fallback that would move the cursor.",
+      "name" : "Test 48: Tap Routing — Unresolved Click Suppressed",
+      "passed" : true
+    },
+    {
+      "details" : "The opt-in cursor restore mode has its own CG_CURSOR_RESTORE_EXPERIMENT classification and is distinct from native pointer isolation.",
+      "name" : "Test 49: Tap Routing — Cursor Restore Is Experimental",
+      "passed" : true
+    },
+    {
+      "details" : "A 30 pt single-finger move cancels the tap candidate; no direct scroll, release momentum, or delayed tap is emitted.",
+      "name" : "Test 50: One-Finger Movement Cancels Without Scroll",
+      "passed" : true
+    },
+    {
+      "details" : "Two-finger motion selects continuous CG scrolling when forced by continuous CG scroll preference toggle.",
+      "name" : "Test 51: Two-Finger Scroll Forces CG When Requested",
+      "passed" : true
+    },
+    {
+      "details" : "A fast two-finger gesture retains direct state after the first lift, then enters kinetic momentum on final release; product mode has no one-finger pan path to momentum.",
+      "name" : "Test 52: Release Momentum Follows Two-Finger Pan",
+      "passed" : true
+    },
+    {
+      "details" : "The first lift stops direct updates and quarantines all remaining contacts; momentum begins only when the full contact group is released.",
+      "name" : "Test 53: Two-to-One Termination Requires Full Release",
+      "passed" : true
+    },
+    {
+      "details" : "A new tap session is accepted after both contacts from the prior two-finger gesture have lifted.",
+      "name" : "Test 54: Fresh One-Finger Tap After Full Release",
+      "passed" : true
+    },
+    {
+      "details" : "A point-containing raw AXCheckBox with AXPress is accepted; AXPopUpButton may use advertised AXShowMenu, AXGroup may not, and existing AXPress roles are unchanged.",
+      "name" : "Test 55: Raw Checkbox and Popup Menu Actions",
+      "passed" : true
+    },
+    {
+      "details" : "firstDown=true, directPan=true, firstLiftQuarantined=true, momentumAfterFinalLift=true, quarantine=true, settled=true, freshFirst=true, freshDirectPan=true; each state\/backend pair is checked, and IDLE cannot emit pan start.",
+      "name" : "Test 56: Fresh Two-Finger Pan After Natural Momentum",
+      "passed" : true
+    },
+    {
+      "details" : "A qualified tap routed in transient-pointer mode posts one normal down\/up pair and restores the initial cursor.",
+      "name" : "Test 57: Qualified One-Finger Tap Invokes Transient Pointer Backend",
+      "passed" : true
+    },
+    {
+      "details" : "A successful transaction warps to the interaction point, posts a click, and returns to the original coordinate.",
+      "name" : "Test 58: Transient Pointer Restores Cursor Position",
+      "passed" : true
+    },
+    {
+      "details" : "Movement beyond slop emits no click; a second contact cancels the tap candidate and promotes to the existing two-finger pan.",
+      "name" : "Test 59: Movement and Second Finger Cancel Pending Tap",
+      "passed" : true
+    },
+    {
+      "details" : "A changed physical activity generation prevents warping the user's real mouse back to a stale starting point.",
+      "name" : "Test 60: Physical Mouse Activity Suppresses Cursor Restoration",
+      "passed" : true
+    },
+    {
+      "details" : "Concealment failure is recorded independently and does not gate the down\/up click; no unmatched show call is issued.",
+      "name" : "Test 61: Cursor Hide Failure Does Not Prevent Click",
+      "passed" : true
+    },
+    {
+      "details" : "A failed relocation posts no click, attempts safe cursor restoration, and balances successful concealment.",
+      "name" : "Test 62: Warp Failure Fails Closed and Cleans Up",
+      "passed" : true
+    },
+    {
+      "details" : "Both events are created before posting; failure to create either event posts no down, then restores cursor and balances visibility.",
+      "name" : "Test 63: Mouse Event Creation Failure Cleans Up",
+      "passed" : true
+    },
+    {
+      "details" : "New routers choose transient pointer delivery by default while preserving the legacy semantic and transient-pointer CLI values.",
+      "name" : "Test 64: Pointer Primary Is the Default; Semantic Is Diagnostic",
+      "passed" : true
+    },
+    {
+      "details" : "A click may proceed without the optional observer, but cursor restoration is suppressed because physical mouse ownership cannot be established.",
+      "name" : "Test 65: Missing Physical Mouse Observer Suppresses Restoration",
+      "passed" : true
+    },
+    {
+      "details" : "A qualified one-finger gesture with no AX context emits exactly one TAP intent.",
+      "name" : "Test 66: Qualified Tap Intent Does Not Require AX Context",
+      "passed" : true
+    },
+    {
+      "details" : "A qualified tap over an AXGroup still produces one transient pointer down\/up pair.",
+      "name" : "Test 67: AXGroup Does Not Change Pointer Primary Routing",
+      "passed" : true
+    },
+    {
+      "details" : "Movement beyond the threshold emits cancellation and no TAP intent.",
+      "name" : "Test 68: Cancelled One-Finger Movement Emits No Tap",
+      "passed" : true
+    },
+    {
+      "details" : "Explicit semantic-only mode selects the AX semantic backend and does not select pointer delivery.",
+      "name" : "Test 69: Semantic-Only Diagnostic Selects AX Delivery",
+      "passed" : true
+    }
+  ],
+  "timestamp" : "2026-09-27T15:12:38Z",
+  "totalTests" : 69
+}
