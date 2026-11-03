@@ -20,6 +20,7 @@ func printHelp() {
       --test-arbitration  Launch P3-03 Interaction Router & Gesture Arbitration Testbed Window.
       --test-runtime      Run automated runtime, gesture arbitration, and tap routing validation suite.
       --test-architecture Run deterministic P3-04A architecture and P3-04B pointer transaction checks.
+      --benchmark         Run automated 5-scenario performance & memory benchmark on Intel/Apple Silicon.
       --print-grid-mapping Evaluate and print 3x3 touch mapping grid (uncompensated vs normalized).
       --test-physical-matrix Run live physical acceptance matrix across Finder, TextEdit, Safari, and Brave.
       --request-accessibility  Request macOS Accessibility permission for TouchBridgeProbe, then exit.
@@ -553,6 +554,10 @@ func main() {
             print("\(result.passed ? "[PASS]" : "[FAIL]") \(result.name): \(result.details)")
         }
         exit(report.allPassed ? 0 : 1)
+    }
+    if args.contains("--benchmark") {
+        _ = PerformanceBenchmarkRunner.shared.runFullBenchmark()
+        exit(0)
     }
     if args.contains("--print-grid-mapping") {
         runPrintGridMapping(args: args)

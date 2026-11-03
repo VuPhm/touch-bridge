@@ -35,7 +35,7 @@ jobs:
           file "$ARM_BIN" | grep -q "arm64" || { echo "Expected arm64 binary"; exit 1; }
           echo "Native arm64 binary confirmed."
 
-      - name: Run Deterministic Architecture Test Suite (86 Tests)
+      - name: Run Deterministic Architecture Test Suite (147 Tests)
         run: |
           echo "Executing deterministic architecture test suite on native host..."
           swift run TouchBridgeProbe --test-architecture

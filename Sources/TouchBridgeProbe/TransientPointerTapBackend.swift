@@ -62,6 +62,7 @@ public protocol PointerTransactionOperating {
     var canObservePhysicalMouse: Bool { get }
     var physicalMouseGeneration: UInt64 { get }
     func pointerActivitySnapshot() -> PointerMouseActivitySnapshot
+    func lastPhysicalCursorPosition() -> CGPoint?
     func prepareForTransactions()
     func cursorPosition() -> CGPoint?
     func advanceCursorVerification()
@@ -81,6 +82,7 @@ public protocol PointerTransactionOperating {
 
 public extension PointerTransactionOperating {
     func prepareForTransactions() {}
+    func lastPhysicalCursorPosition() -> CGPoint? { cursorPosition() }
     func advanceCursorVerification() { CFRunLoopRunInMode(.defaultMode, 0.002, true) }
     func pointerActivitySnapshot() -> PointerMouseActivitySnapshot {
         PointerMouseActivitySnapshot(isObservable: canObservePhysicalMouse, generation: physicalMouseGeneration)
@@ -183,11 +185,26 @@ public final class TransientPointerTapBackend {
     private let relocationAttemptLimit: Int
     private let acknowledgementTimeout: TimeInterval
 
+    /// Predicate to check whether a point lies on the external touchscreen display.
+    /// Points not on touchscreen are treated as belonging to the primary/working display.
+    public var isTouchscreenPoint: (CGPoint) -> Bool = { _ in false }
+    public static var enableEvidencePrinting: Bool = true
+
     /// Active 1-finger drag state. Guaranteed to emit `leftMouseUp` on `endDrag` or `cancelDrag`.
     public private(set) var isDragging: Bool = false
     public private(set) var isWordSelectionDrag: Bool = false
     public private(set) var lastDragPoint: CGPoint? = nil
     private var dragSnapshot: PointerMouseActivitySnapshot? = nil
+    private var dragInitialCursor: CGPoint? = nil
+    private var dragShouldRestoreToMain: Bool = false
+
+    public static func isPointWithinActiveDisplays(_ point: CGPoint) -> Bool {
+        var count: UInt32 = 0
+        guard CGGetActiveDisplayList(0, nil, &count) == .success, count > 0 else { return true }
+        var displays = [CGDirectDisplayID](repeating: 0, count: Int(count))
+        guard CGGetActiveDisplayList(count, &displays, &count) == .success else { return true }
+        return displays.contains { CGDisplayBounds($0).contains(point) }
+    }
 
     public init(
         operations: PointerTransactionOperating = CoreGraphicsPointerTransactionOperations(),
@@ -228,8 +245,15 @@ public final class TransientPointerTapBackend {
         if isDragging {
             cancelDrag()
         }
+        let initial = operations.lastPhysicalCursorPosition() ?? operations.cursorPosition()
+        let shouldRestore = initial.map { !isTouchscreenPoint($0) } ?? false
+        dragInitialCursor = initial
+        dragShouldRestoreToMain = shouldRestore
+
         guard operations.warpCursor(to: startPoint),
               let down = operations.makeMouseEvent(type: .leftMouseDown, at: startPoint) else {
+            dragInitialCursor = nil
+            dragShouldRestoreToMain = false
             return false
         }
         down.clickState = 1
@@ -245,7 +269,7 @@ public final class TransientPointerTapBackend {
         guard isDragging && !isWordSelectionDrag else { return }
         if let dragSnapshot, operations.pointerActivitySnapshot().generation != dragSnapshot.generation {
             TouchBridgeLogger.info(.semantic, "Direct touch drag interrupted by physical mouse activity. Yielding control to physical mouse.")
-            cancelDrag()
+            yieldDragToPhysicalMouse()
             return
         }
         _ = operations.warpCursor(to: currentPoint)
@@ -258,14 +282,31 @@ public final class TransientPointerTapBackend {
 
     public func endDrag(at endPoint: CGPoint) {
         guard isDragging && !isWordSelectionDrag else { return }
+        let shouldRestore = dragShouldRestoreToMain
+        let initial = dragInitialCursor
+        let currentSnapshot = operations.pointerActivitySnapshot()
+        let interference = (dragSnapshot != nil && currentSnapshot.generation != dragSnapshot!.generation)
+
         isDragging = false
         dragSnapshot = nil
+        dragInitialCursor = nil
+        dragShouldRestoreToMain = false
+
         _ = operations.warpCursor(to: endPoint)
         if let up = operations.makeMouseEvent(type: .leftMouseUp, at: endPoint) {
             up.clickState = 1
             operations.post(up)
         }
         lastDragPoint = nil
+
+        if shouldRestore, !interference, let initial, Self.isPointWithinActiveDisplays(initial) {
+            if operations.pointerActivitySnapshot().generation == currentSnapshot.generation {
+                _ = operations.warpCursor(to: initial)
+                TouchBridgeLogger.info(.semantic, "Drag completed; restored cursor to main display at \(initial)")
+            } else {
+                TouchBridgeLogger.info(.semantic, "Drag completed; restoration suppressed due to physical mouse activity.")
+            }
+        }
     }
 
     @discardableResult
@@ -273,8 +314,15 @@ public final class TransientPointerTapBackend {
         if isDragging {
             cancelDrag()
         }
+        let initial = operations.lastPhysicalCursorPosition() ?? operations.cursorPosition()
+        let shouldRestore = initial.map { !isTouchscreenPoint($0) } ?? false
+        dragInitialCursor = initial
+        dragShouldRestoreToMain = shouldRestore
+
         guard operations.warpCursor(to: startPoint),
               let down = operations.makeMouseEvent(type: .leftMouseDown, at: startPoint) else {
+            dragInitialCursor = nil
+            dragShouldRestoreToMain = false
             return false
         }
         down.clickState = 2
@@ -283,7 +331,7 @@ public final class TransientPointerTapBackend {
         isWordSelectionDrag = true
         lastDragPoint = startPoint
         dragSnapshot = operations.pointerActivitySnapshot()
-        TouchBridgeLogger.info(.semantic, "Started word selection drag (clickState: 2) at \(startPoint)")
+        TouchBridgeLogger.info(.semantic, "Started word selection drag (clickState: 2) at \(startPoint), shouldRestoreToMain: \(shouldRestore)")
         return true
     }
 
@@ -291,7 +339,7 @@ public final class TransientPointerTapBackend {
         guard isDragging && isWordSelectionDrag else { return }
         if let dragSnapshot, operations.pointerActivitySnapshot().generation != dragSnapshot.generation {
             TouchBridgeLogger.info(.semantic, "Word selection drag interrupted by physical mouse activity. Yielding control to physical mouse.")
-            cancelDrag()
+            yieldDragToPhysicalMouse()
             return
         }
         _ = operations.warpCursor(to: currentPoint)
@@ -304,31 +352,55 @@ public final class TransientPointerTapBackend {
 
     public func endWordSelectionDrag(at endPoint: CGPoint) {
         guard isDragging && isWordSelectionDrag else { return }
+        let shouldRestore = dragShouldRestoreToMain
+        let initial = dragInitialCursor
+        let currentSnapshot = operations.pointerActivitySnapshot()
+        let interference = (dragSnapshot != nil && currentSnapshot.generation != dragSnapshot!.generation)
+
         isDragging = false
         isWordSelectionDrag = false
         dragSnapshot = nil
+        dragInitialCursor = nil
+        dragShouldRestoreToMain = false
+
         _ = operations.warpCursor(to: endPoint)
         if let up = operations.makeMouseEvent(type: .leftMouseUp, at: endPoint) {
             up.clickState = 2
             operations.post(up)
         }
         lastDragPoint = nil
+
+        if shouldRestore, !interference, let initial, Self.isPointWithinActiveDisplays(initial) {
+            if operations.pointerActivitySnapshot().generation == currentSnapshot.generation {
+                _ = operations.warpCursor(to: initial)
+                TouchBridgeLogger.info(.semantic, "Word selection drag completed; restored cursor to main display at \(initial)")
+            } else {
+                TouchBridgeLogger.info(.semantic, "Word selection drag completed; restoration suppressed due to physical mouse activity.")
+            }
+        }
         TouchBridgeLogger.info(.semantic, "Ended word selection drag (clickState: 2) at \(endPoint)")
     }
 
-    /// Unconditionally releases any held mouse-down state (on disconnect, disable, or gesture cancellation).
-    public func cancelDrag() {
+    /// Yields drag immediately to physical mouse or cancels unconditionally on reset/hotplug.
+    private func yieldDragToPhysicalMouse() {
         guard isDragging else { return }
         let releaseClickState: Int64 = isWordSelectionDrag ? 2 : 1
         isDragging = false
         isWordSelectionDrag = false
         dragSnapshot = nil
+        dragInitialCursor = nil
+        dragShouldRestoreToMain = false
         let releasePoint = lastDragPoint ?? operations.cursorPosition() ?? .zero
         if let up = operations.makeMouseEvent(type: .leftMouseUp, at: releasePoint) {
             up.clickState = releaseClickState
             operations.post(up)
         }
         lastDragPoint = nil
+    }
+
+    /// Unconditionally releases any held mouse-down state (on disconnect, disable, or gesture cancellation).
+    public func cancelDrag() {
+        yieldDragToPhysicalMouse()
     }
 
     @discardableResult
@@ -352,7 +424,8 @@ public final class TransientPointerTapBackend {
         let started = ProcessInfo.processInfo.systemUptime
         let frontmostPIDBefore = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let windowUnderTouch = windowDescription(at: point)
-        let initial = operations.cursorPosition()
+        let initial = operations.lastPhysicalCursorPosition() ?? operations.cursorPosition()
+        let shouldRestoreToMain = initial.map { !isTouchscreenPoint($0) } ?? false
         let observerEstablished = operations.pointerActivitySnapshot()
         let transactionGuard = PointerTransactionGuard(snapshot: observerEstablished)
         var phase: PointerTransactionPhase = observerEstablished.isObservable ? .observing : .prepared
@@ -412,17 +485,21 @@ public final class TransientPointerTapBackend {
             } else if observationUnavailable {
                 suppressedReason = "OBSERVATION_UNAVAILABLE"
                 restoreAPIResult = "SUPPRESSED_OBSERVATION_UNAVAILABLE"
+            } else if !shouldRestoreToMain {
+                // User intentionally moved cursor to touchscreen; retain it there normally.
+                restoreAPIResult = "NOT_REQUIRED_CURSOR_ON_TOUCHSCREEN"
+                restorationVerified = true
             } else if !downCreated || !upCreated {
                 // No button event was posted, so there is no asynchronous click
                 // transaction to acknowledge before restoring the cursor.
-                if let initial {
+                if let initial, Self.isPointWithinActiveDisplays(initial) {
                     restoreAttempted = true
                     let apiSuccess = operations.warpCursor(to: initial)
                     restoreAPIResult = apiSuccess ? "SUCCESS" : "FAILED"
                     restorationVerified = apiSuccess && verifyCursor(at: initial).verified
                 } else {
-                    suppressedReason = "INITIAL_CURSOR_UNAVAILABLE"
-                    restoreAPIResult = "SUPPRESSED_INITIAL_CURSOR_UNAVAILABLE"
+                    suppressedReason = initial == nil ? "INITIAL_CURSOR_UNAVAILABLE" : "TARGET_DISPLAY_UNAVAILABLE"
+                    restoreAPIResult = initial == nil ? "SUPPRESSED_INITIAL_CURSOR_UNAVAILABLE" : "SUPPRESSED_TARGET_DISPLAY_UNAVAILABLE"
                 }
             } else if acknowledgement == .observed {
                 let finalRestoreDecision = transactionGuard.restoreDecision(using: operations)
@@ -434,7 +511,7 @@ public final class TransientPointerTapBackend {
                     observationUnavailable = true
                     suppressedReason = "OBSERVATION_UNAVAILABLE"
                     restoreAPIResult = "SUPPRESSED_OBSERVATION_UNAVAILABLE"
-                } else if let initial {
+                } else if let initial, Self.isPointWithinActiveDisplays(initial) {
                     restoreAttempted = true
                     let apiSuccess = operations.warpCursor(to: initial)
                     restoreAPIResult = apiSuccess ? "SUCCESS" : "FAILED"
@@ -442,8 +519,8 @@ public final class TransientPointerTapBackend {
                     restorationVerified = verification.verified
                     if !apiSuccess { restoreAPIResult = "FAILED" }
                 } else {
-                    suppressedReason = "INITIAL_CURSOR_UNAVAILABLE"
-                    restoreAPIResult = "SUPPRESSED_INITIAL_CURSOR_UNAVAILABLE"
+                    suppressedReason = initial == nil ? "INITIAL_CURSOR_UNAVAILABLE" : "TARGET_DISPLAY_UNAVAILABLE"
+                    restoreAPIResult = initial == nil ? "SUPPRESSED_INITIAL_CURSOR_UNAVAILABLE" : "SUPPRESSED_TARGET_DISPLAY_UNAVAILABLE"
                 }
             } else {
                 suppressedReason = acknowledgement == .timedOut ? "ACKNOWLEDGEMENT_TIMEOUT" : "ACKNOWLEDGEMENT_UNAVAILABLE"
@@ -452,10 +529,13 @@ public final class TransientPointerTapBackend {
             if suppressedReason != nil { phase = .restoreSuppressed }
         } else {
             // A failed/unverified relocation never posts a mouse button event.
-            if let initial, operations.warpCursor(to: initial) {
+            if shouldRestoreToMain, let initial, Self.isPointWithinActiveDisplays(initial), operations.warpCursor(to: initial) {
                 restoreAttempted = true
                 restoreAPIResult = "SUCCESS"
                 restorationVerified = verifyCursor(at: initial).verified
+            } else if !shouldRestoreToMain {
+                restoreAPIResult = "NOT_REQUIRED_CURSOR_ON_TOUCHSCREEN"
+                restorationVerified = true
             } else {
                 restoreAPIResult = initial == nil ? "SUPPRESSED_INITIAL_CURSOR_UNAVAILABLE" : "FAILED"
             }
@@ -531,6 +611,7 @@ public final class TransientPointerTapBackend {
     }
 
     private func printEvidence(_ result: PointerTransactionResult, appName: String?, windowUnderTouch: String, frontmostPIDBefore: pid_t?, frontmostPIDAfter: pid_t?) {
+        guard Self.enableEvidencePrinting else { return }
         func point(_ p: CGPoint?) -> String {
             guard let p else { return "unavailable" }
             return String(format: "(%.1f, %.1f)", p.x, p.y)
@@ -582,12 +663,16 @@ public final class CoreGraphicsPointerTransactionOperations: PointerTransactionO
     private let marker: Int64 = 0x54425054584E
     private var inMomentumScrollStream = false
     private var inDirectScrollStream = false
+    private var lastRecordedPhysicalCursor: CGPoint? = nil
 
     public init() {}
 
     public func prepareForTransactions() {
         CGEventSource(stateID: .combinedSessionState)?.localEventsSuppressionInterval = 0.0
         condition.lock()
+        if lastRecordedPhysicalCursor == nil {
+            lastRecordedPhysicalCursor = cursorPosition()
+        }
         guard !ready, !starting else { condition.unlock(); return }
         starting = true
         condition.unlock()
@@ -619,6 +704,10 @@ public final class CoreGraphicsPointerTransactionOperations: PointerTransactionO
         return PointerMouseActivitySnapshot(isObservable: ready && eventTap.map(CFMachPortIsValid) == true, generation: generation)
     }
     public func cursorPosition() -> CGPoint? { CGEvent(source: nil)?.location }
+    public func lastPhysicalCursorPosition() -> CGPoint? {
+        condition.lock(); defer { condition.unlock() }
+        return lastRecordedPhysicalCursor ?? cursorPosition()
+    }
     public func advanceCursorVerification() { CFRunLoopRunInMode(.defaultMode, 0.002, true) }
     public func hideCursor(at point: CGPoint) -> String {
         let error = CGDisplayHideCursor(display(containing: point))
@@ -744,8 +833,8 @@ public final class CoreGraphicsPointerTransactionOperations: PointerTransactionO
         return true
     }
 
-    private func recordExternalMouseEvent() {
-        condition.lock(); generation &+= 1; condition.broadcast(); condition.unlock()
+    private func recordExternalMouseEvent(at point: CGPoint) {
+        condition.lock(); generation &+= 1; lastRecordedPhysicalCursor = point; condition.broadcast(); condition.unlock()
     }
     private func recordMarkedMouseUp() {
         condition.lock(); acknowledgementGeneration &+= 1; condition.broadcast(); condition.unlock()
@@ -765,7 +854,7 @@ public final class CoreGraphicsPointerTransactionOperations: PointerTransactionO
         if event.getIntegerValueField(.eventSourceUserData) == owner.marker {
             if type == .leftMouseUp || type == .rightMouseUp { owner.recordMarkedMouseUp() }
         } else {
-            owner.recordExternalMouseEvent()
+            owner.recordExternalMouseEvent(at: event.location)
         }
         return Unmanaged.passUnretained(event)
     }

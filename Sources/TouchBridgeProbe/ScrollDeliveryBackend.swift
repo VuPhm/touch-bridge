@@ -266,6 +266,8 @@ public final class TransientPointerScrollBackend: ScrollDeliveryBackend {
 
     public let operations: PointerTransactionOperating
     public let anchorPoint: CGPoint
+    public var isTouchscreenPoint: (CGPoint) -> Bool = { _ in false }
+    public private(set) var shouldRestoreToMain: Bool = false
     public private(set) var targetWindowID: CGWindowID?
     public private(set) var targetPID: pid_t?
     public private(set) var initialPhysicalCursor: CGPoint?
@@ -324,7 +326,8 @@ public final class TransientPointerScrollBackend: ScrollDeliveryBackend {
             targetWindowID = nil
             targetPID = session.context?.pid
         }
-        initialPhysicalCursor = operations.cursorPosition()
+        initialPhysicalCursor = operations.lastPhysicalCursorPosition() ?? operations.cursorPosition()
+        shouldRestoreToMain = initialPhysicalCursor.map { !isTouchscreenPoint($0) } ?? false
         let snapshot = operations.pointerActivitySnapshot()
         guardSnapshot = PointerTransactionGuard(snapshot: snapshot)
 
@@ -440,7 +443,7 @@ public final class TransientPointerScrollBackend: ScrollDeliveryBackend {
         let cursorStr = initialPhysicalCursor.map { "(\(Int($0.x)),\(Int($0.y)))" } ?? "nil"
         var restoreStatus = "no_relocation"
 
-        if relocated, let initial = initialPhysicalCursor {
+        if relocated, shouldRestoreToMain, let initial = initialPhysicalCursor, TransientPointerTapBackend.isPointWithinActiveDisplays(initial) {
             let decision = guardSnapshot?.restoreDecision(using: operations) ?? .observationUnavailable
             if decision == .safe {
                 _ = operations.warpCursor(to: initial)
@@ -456,6 +459,10 @@ public final class TransientPointerScrollBackend: ScrollDeliveryBackend {
                 TouchBridgeLogger.info(.semantic, "P3-06R2 cursor_restore: suppressed reason=\(decision).")
                 session.panActionResult = "COMPATIBILITY_CURSOR_TRANSACTION (TRANSIENT_POINTER_FALLBACK) on [\(appName)]: anchor=(\(Int(anchorPoint.x)),\(Int(anchorPoint.y))), events=\(totalOperationsCount), restored=false (\(decision))"
             }
+        } else if !shouldRestoreToMain {
+            restoreStatus = "NOT_REQUIRED_CURSOR_ON_TOUCHSCREEN"
+            TouchBridgeLogger.info(.semantic, "Transient pointer scroll: cursor was already on touchscreen, retaining cursor location.")
+            session.panActionResult = "COMPATIBILITY_CURSOR_TRANSACTION (TRANSIENT_POINTER_FALLBACK) on [\(appName)]: anchor=(\(Int(anchorPoint.x)),\(Int(anchorPoint.y))), events=\(totalOperationsCount), cursor_retained_on_touchscreen"
         } else {
             session.panActionResult = "COMPATIBILITY_CURSOR_TRANSACTION (TRANSIENT_POINTER_FALLBACK) on [\(appName)]: anchor=(\(Int(anchorPoint.x)),\(Int(anchorPoint.y))), events=\(totalOperationsCount), no_relocation"
             TouchBridgeLogger.info(.semantic, "P3-06R2 cursor_restore: no_relocation transaction ended.")
@@ -471,7 +478,7 @@ public final class TransientPointerScrollBackend: ScrollDeliveryBackend {
         guard !isCompleted else { return }
         isCompleted = true
         operations.postScrollWheel(at: anchorPoint, deltaY: 0, phase: 4, momentumPhase: 0)
-        if relocated, let initial = initialPhysicalCursor {
+        if relocated, shouldRestoreToMain, let initial = initialPhysicalCursor, TransientPointerTapBackend.isPointWithinActiveDisplays(initial) {
             let decision = guardSnapshot?.restoreDecision(using: operations) ?? .observationUnavailable
             if decision == .safe {
                 _ = operations.warpCursor(to: initial)
@@ -488,6 +495,7 @@ public final class HybridScrollDeliveryCoordinator {
     public var pointerOperations: PointerTransactionOperating
     public var forceFallback: Bool = false
     public var axCustomValueSetter: ((Double) -> AXError)? = nil
+    public var isTouchscreenPoint: (CGPoint) -> Bool = { _ in false }
 
     public init(pointerOperations: PointerTransactionOperating = CoreGraphicsPointerTransactionOperations()) {
         self.pointerOperations = pointerOperations
@@ -498,7 +506,9 @@ public final class HybridScrollDeliveryCoordinator {
         if !forceFallback, let axBackend = resolveAXBackend(for: session, at: point) {
             return axBackend
         }
-        return TransientPointerScrollBackend(operations: pointerOperations, anchorPoint: point)
+        let fallback = TransientPointerScrollBackend(operations: pointerOperations, anchorPoint: point)
+        fallback.isTouchscreenPoint = isTouchscreenPoint
+        return fallback
     }
 
     public func resolveAXBackend(for session: InteractionSession, at point: CGPoint) -> AXSemanticScrollBackend? {

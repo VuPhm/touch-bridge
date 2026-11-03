@@ -15,6 +15,8 @@ Dự án sinh ra từ nhu cầu thực tế: mang lại trải nghiệm cảm �
 
 ## ⚡ Điểm Nổi Bật
 
+- **Giữ con trỏ màn hình chính & Trọng tài hai chiều thông minh**: Khi làm việc trên màn hình chính, thao tác chạm trên màn cảm ứng tác động chính xác mà con trỏ vẫn được giữ/khôi phục an toàn ở màn chính. Khi người dùng chủ động đưa chuột sang màn cảm ứng, con trỏ ở lại đó bình thường; khi quay về màn chính, cơ chế tự động tái kích hoạt. Nhường quyền ưu tiên tức thì cho chuột thật, không bao giờ giật con trỏ.
+- **Chọn chữ mượt mà (Word Selection Drag)**: Chạm đúp giữ và kéo (Double-tap–hold–drag) bôi đen văn bản tự nhiên với clickState = 2, chỉ khôi phục con trỏ về màn chính sau khi kết thúc thao tác.
 - **Cuộn 1 ngón trực tiếp (Direct-Touch Scroll)**: Vuốt trực tiếp trên nội dung để cuộn trang 1:1 theo quán tính tự nhiên, với thuật toán đệm quán tính ngắn và dừng tức thì (tap-to-brake) không phát sinh click nhầm.
 - **Kéo thả thông minh & Thao tác cửa sổ siêu tốc (Fast Path Drag)**: Kéo cửa sổ, thanh tiêu đề và mép đổi kích thước (resize edge) với độ trễ cực thấp (< 0.2ms), bỏ qua phân giải Accessibility nặng. Hỗ trợ giữ 0.24s để bôi đen văn bản hoặc kéo tập tin.
 - **Chuột phải tự nhiên (Long-press Context Menu)**: Nhấn giữ 0.48s tại một điểm để mở Menu chuột phải với chỉ báo phản hồi xúc giác.
@@ -108,12 +110,17 @@ Dự án tích hợp bộ kiểm thử kiến trúc độc lập (`--test-archit
 - **Phép Chiếu Tọa Độ & Lưới 3×3 (Underscan Elimination)**: Kiểm chứng lưới 3×3 với sai số $< 1.0$ pt, loại bỏ độ dãn scale trục Y và sai số lệch trái do profile gốc 0° underscan.
 - **Bộ Lọc Chống Rung Thích Ứng (Adaptive Anti-Shake Scroll Stabilizer)**: Triệt tiêu micro-jitter khi dừng tay, tích lũy subpixel cho vuốt chậm trơn tru, đảo chiều tức thì và triệt tiêu văng quán tính ngoài ý muốn khi dừng tay trước khi nhấc.
 - **Ma trận tọa độ (Calibration & Transform Invariants)**: Đảm bảo độ chính xác chuyển đổi không gian màn hình, thích ứng 4 góc xoay (0°, 90°, 180°, 270°).
-- **Hệ thống cử chỉ (Gesture State Machine)**: Kiểm chứng Tap, Double-tap, Hold context menu, Drag lock, 1-finger inertial scroll, 2-finger pinch/zoom.
+- **Bộ Kiểm Thử Kiến Trúc Tự Động (147 bài kiểm thử)**: Kiểm chứng Tap, Double-tap, Triple-tap, Hold context menu, Drag lock, Word selection drag (clickState = 2), 1-finger inertial scroll, 2-finger pinch/zoom, phân lập sự kiện chuột thật/tổng hợp và trọng tài khôi phục con trỏ hai màn hình.
 - **An toàn giao diện (Safety Invariants)**: Đảm bảo không bao giờ tồn tại trạng thái kẹt mouse-down khi ngắt kết nối hoặc Sleep máy tính; chuột vật lý luôn có quyền tiếp quản ưu tiên.
 
-Chạy kiểm thử:
+Chạy kiểm thử kiến trúc:
 ```bash
 swift run TouchBridgeProbe --test-architecture
+```
+
+Chạy đo lường hiệu năng thực tế (MacBook Pro 2019 Intel 16 GB):
+```bash
+swift run TouchBridgeProbe --benchmark
 ```
 
 ---

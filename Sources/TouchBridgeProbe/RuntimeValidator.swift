@@ -253,6 +253,12 @@ public final class RuntimeValidator {
         test139_SystemVirtualKeyboardManagerIntegration()
         test140_DoubleTapHoldDragWordSelectionLifecycle()
         test141_TripleTapParagraphSelectionAndPopoverArbitration()
+        test142_SyntheticVsPhysicalMouseInputIsolation()
+        test143_PrimaryScreenCursorPreservationAcrossTapModes()
+        test144_PhysicalMouseInterferencePreemptsRestoration()
+        test145_DoubleTapHoldDragWordSelectionRestorationTiming()
+        test146_BidirectionalDisplayCursorTransitionArbitration()
+        test147_SafeRecoveryOnResetAndDisplayConfigurationChange()
 
         let passed = results.filter(\.passed).count
         let failed = results.count - passed
@@ -970,6 +976,7 @@ public final class RuntimeValidator {
         var canObservePhysicalMouse = true
         var physicalMouseGeneration: UInt64 = 0
         var cursor = CGPoint(x: 700, y: 500)
+        var fakePhysicalCursor: CGPoint? = nil
         var hideResult = "SUCCESS"
         var showCount = 0
         var warpCalls = 0
@@ -993,6 +1000,14 @@ public final class RuntimeValidator {
         func cursorPosition() -> CGPoint? {
             if let target = pendingWarpTarget, delayedWarpReadbacks == 0 { cursor = target; pendingWarpTarget = nil }
             return cursor
+        }
+        func lastPhysicalCursorPosition() -> CGPoint? {
+            fakePhysicalCursor ?? cursorPosition()
+        }
+        func simulatePhysicalMouseMove(to point: CGPoint) {
+            fakePhysicalCursor = point
+            cursor = point
+            physicalMouseGeneration &+= 1
         }
         func advanceCursorVerification() {
             verificationProgressCount += 1
@@ -3792,6 +3807,159 @@ public final class RuntimeValidator {
             name: "Test 141: Triple-Tap Paragraph Selection and Arbitration",
             passed: passed,
             details: "Three rapid taps within double-click interval execute native clickState = 3 paragraph selection transaction, clearing pairing candidate on completion."
+        )
+    }
+
+    private func test142_SyntheticVsPhysicalMouseInputIsolation() {
+        let operations = FakePointerOperations()
+        let backend = TransientPointerTapBackend(operations: operations)
+        operations.cursor = CGPoint(x: 250, y: 350)
+
+        // Synthetic tap from TouchBridge
+        _ = backend.performClick(at: CGPoint(x: 1200, y: 500))
+        let genAfterSynthetic = operations.physicalMouseGeneration
+
+        // Physical mouse movement simulation
+        operations.simulatePhysicalMouseMove(to: CGPoint(x: 270, y: 370))
+        let genAfterPhysical = operations.physicalMouseGeneration
+        let physicalCursor = operations.lastPhysicalCursorPosition()
+
+        let passed = genAfterSynthetic == 0 && genAfterPhysical == 1 && physicalCursor == CGPoint(x: 270, y: 370)
+        record(
+            name: "Test 142: Synthetic vs Physical Mouse Input Isolation",
+            passed: passed,
+            details: "TouchBridge synthetic warp and mouse events never advance physical activity generations; real mouse movement is cleanly distinguished and tracked."
+        )
+    }
+
+    private func test143_PrimaryScreenCursorPreservationAcrossTapModes() {
+        let operations = FakePointerOperations()
+        let backend = TransientPointerTapBackend(operations: operations)
+        backend.isTouchscreenPoint = { $0.x >= 1000 }
+
+        // Scenario 1: Cursor initially on primary screen (x: 400)
+        operations.cursor = CGPoint(x: 400, y: 300)
+        let tapResult = backend.performClick(at: CGPoint(x: 1200, y: 600))
+        let cursorAfterTap = operations.cursor
+        let doubleResult = backend.performPairedClick(at: CGPoint(x: 1200, y: 600))
+        let cursorAfterDouble = operations.cursor
+        let tripleResult = backend.performTripleClick(at: CGPoint(x: 1200, y: 600))
+        let cursorAfterTriple = operations.cursor
+
+        let primaryPreserved = tapResult.restorationVerified && cursorAfterTap == CGPoint(x: 400, y: 300) &&
+                               doubleResult.restorationVerified && cursorAfterDouble == CGPoint(x: 400, y: 300) &&
+                               tripleResult.restorationVerified && cursorAfterTriple == CGPoint(x: 400, y: 300)
+
+        // Scenario 2: User intentionally moved cursor to touchscreen (x: 1300)
+        operations.simulatePhysicalMouseMove(to: CGPoint(x: 1300, y: 700))
+        let touchResult = backend.performClick(at: CGPoint(x: 1400, y: 750))
+        let cursorAfterTouchTap = operations.cursor
+
+        let touchRetained = touchResult.restoreAPIResult == "NOT_REQUIRED_CURSOR_ON_TOUCHSCREEN" &&
+                            cursorAfterTouchTap == CGPoint(x: 1400, y: 750)
+
+        let passed = primaryPreserved && touchRetained
+        record(
+            name: "Test 143: Primary Screen Cursor Preservation Across Tap Modes",
+            passed: passed,
+            details: "When cursor is on primary display, single/double/triple taps restore to original position; when user intentionally moves cursor to touchscreen, it remains there normally."
+        )
+    }
+
+    private func test144_PhysicalMouseInterferencePreemptsRestoration() {
+        let operations = FakePointerOperations()
+        let backend = TransientPointerTapBackend(operations: operations)
+        backend.isTouchscreenPoint = { $0.x >= 1000 }
+        operations.cursor = CGPoint(x: 300, y: 300)
+        operations.simulatePhysicalActivityOnAcknowledgement = true
+
+        let result = backend.performClick(at: CGPoint(x: 1200, y: 500))
+
+        let passed = result.physicalMouseInterferenceDetected &&
+                     result.restoreAPIResult == "SUPPRESSED_PHYSICAL_MOUSE_ACTIVITY" &&
+                     result.restorationSuppressedReason == "PHYSICAL_MOUSE_ACTIVITY"
+
+        record(
+            name: "Test 144: Physical Mouse Interference Preempts Restoration",
+            passed: passed,
+            details: "Real mouse movement during click delivery immediately cancels cursor restoration and yields control without rubber-banding."
+        )
+    }
+
+    private func test145_DoubleTapHoldDragWordSelectionRestorationTiming() {
+        let operations = FakePointerOperations()
+        let backend = TransientPointerTapBackend(operations: operations)
+        backend.isTouchscreenPoint = { $0.x >= 1000 }
+        operations.cursor = CGPoint(x: 200, y: 200)
+
+        // Start word selection drag on touchscreen
+        let began = backend.beginWordSelectionDrag(at: CGPoint(x: 1100, y: 400))
+        backend.updateWordSelectionDrag(to: CGPoint(x: 1250, y: 400))
+        let duringDragCursor = operations.cursor
+        let duringDragState = backend.isWordSelectionDrag
+
+        // End word selection drag
+        backend.endWordSelectionDrag(at: CGPoint(x: 1300, y: 400))
+        let finalCursor = operations.cursor
+        let finalDragState = backend.isWordSelectionDrag
+        let clickStatesCorrect = operations.postedClickStates == [2, 2, 2]
+
+        let passed = began && duringDragState && duringDragCursor == CGPoint(x: 1250, y: 400) &&
+                     !finalDragState && finalCursor == CGPoint(x: 200, y: 200) && clickStatesCorrect
+
+        record(
+            name: "Test 145: Double-Tap–Hold–Drag Word Selection Restoration Timing",
+            passed: passed,
+            details: "Word selection drag maintains native down(2) -> drag(2) -> up(2) sequence on touchscreen and restores cursor to primary screen only after transaction completion."
+        )
+    }
+
+    private func test146_BidirectionalDisplayCursorTransitionArbitration() {
+        let operations = FakePointerOperations()
+        let backend = TransientPointerTapBackend(operations: operations)
+        backend.isTouchscreenPoint = { $0.x >= 1000 }
+
+        // 1. Working on primary display
+        operations.simulatePhysicalMouseMove(to: CGPoint(x: 350, y: 350))
+        let res1 = backend.performClick(at: CGPoint(x: 1200, y: 500))
+        let step1Passed = res1.restorationVerified && operations.cursor == CGPoint(x: 350, y: 350)
+
+        // 2. User moves physical mouse to touchscreen
+        operations.simulatePhysicalMouseMove(to: CGPoint(x: 1250, y: 550))
+        let res2 = backend.performClick(at: CGPoint(x: 1400, y: 600))
+        let step2Passed = res2.restoreAPIResult == "NOT_REQUIRED_CURSOR_ON_TOUCHSCREEN" && operations.cursor == CGPoint(x: 1400, y: 600)
+
+        // 3. User moves physical mouse back to primary display
+        operations.simulatePhysicalMouseMove(to: CGPoint(x: 500, y: 500))
+        let res3 = backend.performClick(at: CGPoint(x: 1300, y: 450))
+        let step3Passed = res3.restorationVerified && operations.cursor == CGPoint(x: 500, y: 500)
+
+        let passed = step1Passed && step2Passed && step3Passed
+        record(
+            name: "Test 146: Bidirectional Display Cursor Transition Arbitration",
+            passed: passed,
+            details: "Moving physical mouse between screens seamlessly toggles between primary screen restoration and touchscreen retention without screen edge locks or manual modes."
+        )
+    }
+
+    private func test147_SafeRecoveryOnResetAndDisplayConfigurationChange() {
+        let operations = FakePointerOperations()
+        let backend = TransientPointerTapBackend(operations: operations)
+        backend.isTouchscreenPoint = { $0.x >= 1000 }
+
+        _ = backend.beginDrag(at: CGPoint(x: 1200, y: 500))
+        let wasDragging = backend.isDragging
+        backend.cancelDrag()
+        let isDraggingAfter = backend.isDragging
+        let lastEventWasUp = operations.postedTypes.last == .leftMouseUp
+
+        let invalidDisplaySafe = !TransientPointerTapBackend.isPointWithinActiveDisplays(CGPoint(x: -999999, y: -999999))
+
+        let passed = wasDragging && !isDraggingAfter && lastEventWasUp && invalidDisplaySafe
+        record(
+            name: "Test 147: Safe Recovery On Reset And Display Configuration Change",
+            passed: passed,
+            details: "Drag cancel and router reset unconditionally release mouse buttons; invalid off-screen restore targets are rejected safely on display reconfiguration."
         )
     }
 

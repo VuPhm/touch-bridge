@@ -246,6 +246,9 @@ public final class TouchBridgeRuntime: NSObject, TouchscreenDeviceDelegate, HIDF
         
         if let disp = target {
             displayState = .bound(disp)
+            let bounds = disp.cgBounds
+            router.transientPointerBackend.isTouchscreenPoint = { bounds.contains($0) }
+            router.scrollCoordinator.isTouchscreenPoint = { bounds.contains($0) }
             TouchBridgeLogger.info(.display, "Bound to Target Display: \"\(disp.name)\" (#\(disp.id), \(Int(disp.cgWidth))x\(Int(disp.cgHeight)))")
             
             // Check & evaluate calibration profile
@@ -253,6 +256,8 @@ public final class TouchBridgeRuntime: NSObject, TouchscreenDeviceDelegate, HIDF
         } else {
             displayState = .targetMissing
             calibrationState = .missing
+            router.transientPointerBackend.isTouchscreenPoint = { _ in false }
+            router.scrollCoordinator.isTouchscreenPoint = { _ in false }
             mapper.updateBinding(display: nil, profile: nil)
             recognizer.updateBinding()
             TouchBridgeLogger.warning(.display, "No external display found for touchscreen binding.")
@@ -329,6 +334,8 @@ public final class TouchBridgeRuntime: NSObject, TouchscreenDeviceDelegate, HIDF
                 self.router.resetGestureState()
                 self.displayState = .targetMissing
                 self.calibrationState = .missing
+                self.router.transientPointerBackend.isTouchscreenPoint = { _ in false }
+                self.router.scrollCoordinator.isTouchscreenPoint = { _ in false }
                 self.mapper.updateBinding(display: nil, profile: nil)
                 self.recognizer.updateBinding()
                 self.evaluateEngineState()
@@ -336,6 +343,9 @@ public final class TouchBridgeRuntime: NSObject, TouchscreenDeviceDelegate, HIDF
             }
             
             self.displayState = .bound(boundDisplay)
+            let bounds = boundDisplay.cgBounds
+            self.router.transientPointerBackend.isTouchscreenPoint = { bounds.contains($0) }
+            self.router.scrollCoordinator.isTouchscreenPoint = { bounds.contains($0) }
             self.resolveCalibrationProfile(for: boundDisplay)
             if case .stale(let reason) = self.calibrationState {
                 self.displayState = .configurationChanged(reason: reason)
